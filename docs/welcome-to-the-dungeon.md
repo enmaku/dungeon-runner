@@ -61,7 +61,7 @@ On your turn, exactly one of:
 1. **Starting HP** for the run = **adventurer tile** HP + sum of **remaining equipment** HP modifiers (per tile rules). The adventurer tile is never discarded.
 2. **Before the first dungeon reveal:** if you still have **Vorpal Sword** or **Vorpal Dagger**, declare your **Vorpal blade** target for this run (see [Vorpal blade](#vorpal-blade-warrior-and-rogue)).
 3. Reveal the Dungeon pile **one card at a time** (order matters). The runner learns the dungeon **only as each card is revealed**; unrevealed cards are **unknown** (no UI spoiler for the card under Polymorph—using it is a **gamble**).
-4. For each revealed monster, resolve **eliminations** in **specific-before-broad** order: **(a)** **Vorpal blade** if this is the **first** copy of your named **species** this run; **(b)** other **legal** eliminations from **narrow** rules **before** **wide** ones—e.g. **Ring of Power** (strength **≤ 2** only) before **Torch** (strength **≤ 3**); if both could apply, **Ring** wins and the **healing** applies - the same is true of other effects like **Chalice** which could conflict; **(c)** remaining **icons** / special text / **adventurer**; **(d)** otherwise lose HP equal to monster **strength**. Then **discard** the monster unless it **ended the run** by killing the hero (see **Monster cards** under [Equipment](#equipment)).
+4. For each revealed monster, resolve **eliminations** in a fixed priority (implementation must match the physical rulebook where it is precise): **(a)** **Vorpal blade** if this is the **first** copy of your named **species** this run (tile is **spent**); **(b)** other **legal** auto-defeats—where **only one** effect changes **observable** state, use the **narrower** rule first (e.g. **Ring of Power** before **Torch** on a goblin so **Ring** healing applies, because both would defeat the card but outcomes differ). **Holy Grail** and **Torch** are **not** removed when they banish a monster; if both could defeat the same card (e.g. even strength **and** strength **≤ 3**), **order does not matter** for table outcomes—either way the monster is gone and both tiles stay. **(c)** remaining **icons** / special text / **adventurer**; **(d)** otherwise lose HP equal to monster **strength**. Then **discard** the monster unless it **ended the run** by killing the hero (see **Monster cards** under [Equipment](#equipment)).
 5. **Outcome**
    - **Success:** you **fully resolve** the **dungeon pile** in order; **after the last card**, **current HP** is **&gt; 0** → you **survived** → take a **Success** card (second success wins the game).
    - **Failure:** the only dungeon **fail** is **death**—HP **≤ 0** and not saved (e.g. **Healing Potion**). If the adventurer is **Mage**, **Omnipotence** is still an **active** equipment tile, and **[Omnipotence](#omnipotence-mage)** could apply, resolve it **before** finalizing defeat; it may turn the run into a **win**. If the run is still a loss, flip aid white→red, or if already red → **eliminated**; if one player remains → they win.
@@ -179,7 +179,7 @@ No **Torch**, **Hammer**, **Staff**, or **Cloak** icon equipment (besides **Chal
 |------|--------|------|
 | Mithril Armor | +5 HP | — |
 | Healing Potion | When HP would hit **0** or drop **below 0** for any reason: revive **once** per dungeon at **adventurer-tile HP only** (not equipment HP); **negates** that lethal outcome so the run can continue; then **remove from play** | — |
-| Ring of Power | Defeat monsters with strength **≤ 2**; add their **total** strength to your HP (**healing**; current HP may exceed adventurer tile + equipment). **Narrower than Torch**—if both could apply on the same card, **Ring** resolves **first** and you get the **healing** | — |
+| Ring of Power | Defeat monsters with strength **≤ 2**; add their **total** strength to your HP (**healing**; current HP may exceed adventurer tile + equipment). **Narrower than Torch** (strength **≤ 3**): Rogue has **no** Torch tile, but if a house rule or variant ever gives both, **Ring** must win so the **healing** applies when both would defeat the same card | — |
 | Buckler | +3 HP | — |
 | Vorpal Dagger | **Vorpal blade** — same rules as **Vorpal Sword** ([below](#vorpal-blade-warrior-and-rogue)) | — |
 | Invisibility Cloak | Defeat monsters with strength **≥ 6** | Cloak |
@@ -224,7 +224,7 @@ Pass; draw then add **or** sacrifice + **which** equipment (when any equipment r
 
 ### Effect order
 
-Where the rules still leave gaps, use the **specific-before-broad** rule from [Dungeon phase](#dungeon-phase-that-player-only) step **4** and extend it consistently in code.
+Use [Dungeon phase](#dungeon-phase-that-player-only) step **4**. Prefer **narrow-before-wide** only when it changes what the players see (e.g. **Ring** healing vs **Torch** alone). Do not treat **Holy Grail** vs **Torch** as a player-facing priority contest—neither is consumed on use, and the banish result is the same if both apply.
 
 ### Success (dungeon)
 
@@ -259,3 +259,5 @@ Repo-level roadmap (graphical **web** client later, browser-run trained model, e
 | 2026-04-22 | Discard model; once/dungeon → remove tile; Fire Axe = reveal; Demonic Pact auto-defeats; Omni = entire dungeon; death only fail; Ring &gt; Torch |
 | 2026-04-22 | **Single-use equipment** section; **Vorpal** + **Demonic Pact** remove from play when spent |
 | 2026-04-22 | Bidding info wording + **Repo integration (README)**; public pile count; AEC vs runner-only dungeon |
+| 2026-04-22 | Dungeon step **4**: Grail vs Torch order immaterial when both defeat; Ring-before-Torch only where outcomes differ |
+| 2026-04-22 | Rogue **Ring** table: clarify “narrower than Torch” vs Rogue having no Torch tile |
