@@ -88,7 +88,9 @@ Exact layout (`src/`, `tests/`, entrypoints) will appear once the simulator exis
 
 *(To be written after `requirements.txt` and a runnable entrypoint exist.)*
 
-Typical flow will be something like: create a virtualenv, `pip install -r requirements.txt`, run the game client or training script.
+Typical flow will be something like: create a virtualenv, `pip install -r requirements.txt` (or `pip install -e .`), run the game client or training script.
+
+**Pygame table-style UI** (optional, for `scripts/play_random_game.py` with `--gui`): `pip install -e ".[gui]"`. Layout uses facedown cards and a full equipment row (X for sacrificed/used). Pass `--god` to show exact deck and draw faces; defaults are slow on purpose—use `--step-ms` / `--dungeon-step-ms` to tune.
 
 ## Long-term (not committed work)
 

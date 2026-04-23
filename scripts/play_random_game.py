@@ -4,6 +4,17 @@
 Policy knobs below (--pass-weight, --sacrifice-weight, min pile before pass) exist only
 to make this script produce nicer toy runs. They are not enforced by ``Match`` and are
 not part of the real Welcome to the Dungeon ruleset.
+
+Bidding sim policy (on top of those bases): the effective pass weight scales up with
+dungeon pile size; the effective sacrifice weight goes down for each equipment
+piece already set aside to dodge cards this round; when a facedown card is pending,
+sacrifice is weighted by that card's strength. In the dungeon, Vorpal declaration
+is weighted by each species' base strength (see module constants).
+
+With ``--gui`` / ``--visual``, opens a pygame window (install ``.[gui]``) in a
+**table-style** layout: facedown cards, private draw, and equipment with pieces
+X'd when sacrificed or used. Use ``--god`` to also show exact card faces from the
+deck and pending draw (debug). Timing flags control pace (defaults are slow).
 """
 
 from __future__ import annotations
@@ -19,12 +30,46 @@ if _SRC.is_dir() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 import dungeon_runner.actions as A
-from dungeon_runner.catalog import ALL_EQUIP_DB
+from dungeon_runner.catalog import ALL_EQUIP_DB, SPECIES_DATA
 from dungeon_runner.match import BiddingState, Match, MatchPhase
 from dungeon_runner.types_core import AdventurerKind
 
 # Simulation-only: do not move into ``Match`` / rules docs as a game requirement.
-_MIN_DUNGEON_CARDS_BEFORE_PASS = 5
+_MIN_DUNGEON_CARDS_BEFORE_PASS = 3
+# Bidding: effective pass weight *= (1 + this * len(dungeon_pile)) so passing gets likelier as the pile grows.
+_PASS_WEIGHT_GROWTH_PER_DUNGEON_CARD = 0.14
+# Bidding PENDING: effective sacrifice weight *= this ** len(sacrifice_rows) (equipment already given up this round).
+_SACRIFICE_WEIGHT_DECAY_PER_EQUIP_REMOVED = 0.58
+# PENDING sacrifice + Vorpal: weight ~= max( min, scale * base strength of card or species ).
+_SACRIFICE_STRENGTH_MIN = 0.2
+_SACRIFICE_STRENGTH_SCALE = 0.14
+
+
+def _strength_driven_weight(strength: int) -> float:
+    return max(_SACRIFICE_STRENGTH_MIN, _SACRIFICE_STRENGTH_SCALE * float(strength))
+
+
+def _sim_pass_weight(m: Match, base: float) -> float:
+    if m.phase is not MatchPhase.BIDDING:
+        return base
+    pile = len(m.dungeon_pile)
+    return base * (1.0 + _PASS_WEIGHT_GROWTH_PER_DUNGEON_CARD * pile)
+
+
+def _sim_sacrifice_weight(m: Match, base: float) -> float:
+    if m.phase is not MatchPhase.BIDDING or m.bidding_sub is not BiddingState.PENDING:
+        return base
+    n = len(m.sacrifice_rows)
+    return base * (_SACRIFICE_WEIGHT_DECAY_PER_EQUIP_REMOVED**n)
+
+
+def _sacrifice_pending_strength_factor(m: Match) -> float:
+    if m.phase is not MatchPhase.BIDDING or m.bidding_sub is not BiddingState.PENDING:
+        return 1.0
+    c = m.pending_card
+    if c is None:
+        return 1.0
+    return _strength_driven_weight(c.strength)
 
 
 def _random_sim_action_subset(m: Match, legal: set[object]) -> set[object]:
@@ -40,15 +85,27 @@ def _random_sim_action_subset(m: Match, legal: set[object]) -> set[object]:
     return out
 
 
-def _action_weight(a: object, *, pass_weight: float, sacrifice_weight: float) -> float:
+def _action_weight(
+    a: object,
+    m: Match,
+    *,
+    pass_weight: float,
+    sacrifice_weight: float,
+) -> float:
     if isinstance(a, A.PassBid):
-        return pass_weight
+        return _sim_pass_weight(m, pass_weight)
     if isinstance(a, A.SacrificeEquipment):
-        return sacrifice_weight
+        w0 = _sim_sacrifice_weight(m, sacrifice_weight)
+        w0 *= _sacrifice_pending_strength_factor(m)
+        return max(1e-9, w0)
+    if isinstance(a, A.DeclareVorpal):
+        st0 = SPECIES_DATA[a.target_species][0]
+        return max(1e-9, _strength_driven_weight(st0))
     return 1.0
 
 
 def pick_action(
+    m: Match,
     actions: set[object],
     rng: random.Random,
     *,
@@ -56,7 +113,10 @@ def pick_action(
     sacrifice_weight: float,
 ) -> object:
     acts = list(actions)
-    w = [_action_weight(a, pass_weight=pass_weight, sacrifice_weight=sacrifice_weight) for a in acts]
+    w = [
+        _action_weight(a, m, pass_weight=pass_weight, sacrifice_weight=sacrifice_weight)
+        for a in acts
+    ]
     return rng.choices(acts, weights=w, k=1)[0]
 
 
@@ -157,7 +217,61 @@ def main() -> None:
         help="Relative weight for sacrifice vs add in pending step (simulation only)",
     )
     ap.add_argument("--max-steps", type=int, default=8000, help="Safety cap")
+    ap.add_argument(
+        "--gui",
+        "--visual",
+        action="store_true",
+        help="Open pygame observer view (pip install -e \".[gui]\")",
+    )
+    ap.add_argument(
+        "--god",
+        action="store_true",
+        help="With --gui: show deck / pending card faces (debug, not a fair table view)",
+    )
+    ap.add_argument(
+        "--step-ms",
+        type=float,
+        default=1400.0,
+        help="With --gui: delay after each move outside dungeon phase (ms)",
+    )
+    ap.add_argument(
+        "--dungeon-step-ms",
+        type=float,
+        default=2000.0,
+        help="With --gui: delay after each move during dungeon phase (ms)",
+    )
+    ap.add_argument(
+        "--end-screen-ms",
+        type=float,
+        default=8000.0,
+        help="With --gui: time to show final state before exit (ms)",
+    )
+    ap.add_argument(
+        "--banner-ms",
+        type=float,
+        default=5000.0,
+        help="With --gui: how long the dungeon success/fail banner stays visible (ms)",
+    )
     args = ap.parse_args()
+
+    view = None
+    if args.gui:
+        try:
+            from dungeon_runner.ui import MatchViewConfig, get_match_view
+        except ImportError as err:
+            print(
+                "Pygame UI requires: pip install -e \".[gui]\"  (or: pip install pygame)",
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from err
+        vcfg = MatchViewConfig(
+            step_delay_ms=args.step_ms,
+            dungeon_step_delay_ms=args.dungeon_step_ms,
+            end_screen_ms=args.end_screen_ms,
+            god_mode=args.god,
+            run_outcome_banner_ms=args.banner_ms,
+        )
+        view = get_match_view(vcfg)
 
     rng = random.Random(args.seed)
     m = Match.new(args.players, rng, AdventurerKind.WARRIOR, start_seat=0)
@@ -166,6 +280,13 @@ def main() -> None:
     seed_note = f" · seed {args.seed}" if args.seed is not None else ""
     print(f"{args.players} players · Warrior first{seed_note}")
     print(roster_line(m), "—", state_line(m), end="\n\n")
+
+    if view is not None:
+        view.sync(m)
+        if not view.pump(0):
+            view.close()
+            print("Window closed before start.", file=sys.stderr)
+            return
 
     while m.phase is not MatchPhase.ENDED and step < args.max_steps:
         acts = m.legal_actions()
@@ -177,6 +298,7 @@ def main() -> None:
             print("Random-run policy left no moves; stopping.")
             break
         a = pick_action(
+            m,
             acts,
             rng,
             pass_weight=args.pass_weight,
@@ -186,6 +308,17 @@ def main() -> None:
         line = describe_move(m, a)
         phase_before = m.phase
         m.apply(a)
+        if view is not None:
+            view.sync(m)
+            d_ms = (
+                view.config.dungeon_step_delay_ms
+                if m.phase is MatchPhase.DUNGEON
+                or phase_before is MatchPhase.DUNGEON
+                else view.config.step_delay_ms
+            )
+            if not view.pump(d_ms):
+                print("Window closed; stopping.", file=sys.stderr)
+                break
         if phase_before is MatchPhase.DUNGEON and m.phase is not MatchPhase.DUNGEON:
             if m.dungeon_run_log:
                 print("  Dungeon report:")
@@ -201,6 +334,12 @@ def main() -> None:
         print(state_line(m))
     elif step >= args.max_steps:
         print(f"(Cut off at {args.max_steps} moves.)")
+
+    if view is not None:
+        if view.is_open:
+            view.sync(m)
+            view.pump(view.config.end_screen_ms)
+        view.close()
 
 
 if __name__ == "__main__":
