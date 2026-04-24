@@ -44,7 +44,7 @@ Train a neural network to play [*Welcome to the Dungeon*](https://iellogames.com
 
 - **Goal:** this project is partly a **learning exercise**—you want to **implement the RL update yourself** (policy gradients / advantages / whatever you choose), not hide that work behind a general-purpose RL framework for v1.
 - **Stack:** **TensorFlow**, using the **Keras** API (`tf.keras`) for the **network** (layers, forward pass, etc.). Training logic (sampling actions, computing losses, applying gradients) lives in **your own Python**, calling into Keras models and TF optimizers.
-- **Out of scope for now:** adopting **Ray RLlib**, **TF-Agents**, etc. as the *primary* training path. Revisit only if you deliberately choose to after the custom loop exists.
+- **Out of scope for a single “turnkey” third-party PPO** as the *only* path: the repo keeps a **first-class custom Keras loop**; optional `train_rllib.py` adds **Ray-parallel** self-play while still using that same Keras PPO, not a separate RLlib-only policy. **TF-Agents** and similar are still optional extras.
 
 ### Rewards (decided — high level)
 
@@ -87,7 +87,10 @@ Exact layout (`src/`, `tests/`, entrypoints) will appear once the simulator exis
 ## Quickstart
 
 1. Create a virtualenv, then: `pip install -r requirements.txt` (or `pip install -e .`) and `pytest` to verify the game engine.
-2. **PPO training (optional):** `pip install -e ".[train]"`, then e.g. `python scripts/train.py --logdir runs/my_run` (long run: default is 10k PPO updates; add `--updates 5` for a quick smoke test). Weights land at `logdir/policy.weights.h5` (also rewritten every `--save-every` steps, default 500, while training); run `tensorboard --logdir=runs/my_run` for scalars (PPO `loss/*`, `rollout/*`, and `game/*` such as `nn_win_rate` and self-play vs mixed-bot fraction). Default is CPU; for GPU, install a CUDA-enabled TensorFlow build and use your usual device env vars.
+2. **PPO training (optional):** `pip install -e ".[train]"` (includes [Ray](https://docs.ray.io/) for the self-play script). There are two entry points that share the **same** Keras architecture (`PolicyValueModel`, see `src/dungeon_runner/rl/model.py::DEFAULT_PPO_HIDDEN`) and the **same** optional weights file **`logdir/policy.weights.h5`**. Only the **network weights** are shared; **optimizer (Adam) state** is *not*—switching between scripts starts a fresh optimizer but loads the same policy.
+   - `python scripts/train.py --logdir runs/my_run` — custom loop vs a **weighted-random** bot. Default `--weights` is `logdir/policy.weights.h5` if that file exists. Long runs default to 10k PPO updates; add `--updates 5` to smoke test.
+   - `python scripts/train_rllib.py --logdir runs/my_sp` — **self-play only** (all seats NN); uses **Ray** to parallelize rollouts with the same hand-rolled Keras PPO as `train.py`. Ray 2.5+ does not expose a Keras / TF PPO on the new RLlib stack in a way that would keep portable `save_weights`/`load_weights` compatible, so this script is **not** a drop-in to `rllib`’s PPO `Algorithm`—it is Ray for **sampling** only, plus shared H5. On macOS, you may need to start Ray in a [supported configuration](https://docs.ray.io/en/latest/ray-core/configure.html#local-cluster-setup) if you see multiprocessing or resource issues.
+   Weights are also written every `--save-every` (default 500) during training, and a final H5 is written at the end. `tensorboard --logdir=.../scalars` for PPO `loss/*`, `rollout/*`, and `game/*`. Default is CPU; for GPU, install a CUDA-enabled TensorFlow build and use your usual device env vars.
 3. **Pygame table-style UI** (optional, for `scripts/play_random_game.py` with `--gui`): `pip install -e ".[gui]"`. Layout uses facedown cards and a full equipment row (X for sacrificed/used). Pass `--god` to show exact deck and draw faces; defaults are slow on purpose—use `--step-ms` / `--dungeon-step-ms` to tune.
 
 ## Long-term (not committed work)

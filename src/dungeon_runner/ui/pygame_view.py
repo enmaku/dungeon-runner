@@ -230,6 +230,12 @@ class PygameMatchView:
             t2 = f"Match over  -  winner: seat {m.winner_seat} ({tname})"
             y += int(self._font.render(t2, True, (0, 0, 0)).get_height())  # type: ignore[union-attr, no-untyped-call]
             y += 28
+        elif m.phase is MatchPhase.ENDED:
+            tr = m.terminal_reason
+            tname = tr.name if isinstance(tr, MatchTerminalReason) else "?"
+            t2 = f"Match over  -  no winner  ({tname})"
+            y += int(self._font.render(t2, True, (0, 0, 0)).get_height())  # type: ignore[union-attr, no-untyped-call]
+            y += 28
         if m.phase is MatchPhase.DUNGEON and m.runner_seat is not None:
             y += int(
                 self._font.render(  # type: ignore[no-untyped-call, union-attr]
@@ -560,6 +566,14 @@ class PygameMatchView:
             tname = tr.name if isinstance(tr, MatchTerminalReason) else "?"
             y += self._draw_label(
                 surf, 20, y, f"Match over  -  winner: seat {m.winner_seat} ({tname})",
+                _COLOR_WARN,
+            )
+            y += 28
+        elif m.phase is MatchPhase.ENDED:
+            tr = m.terminal_reason
+            tname = tr.name if isinstance(tr, MatchTerminalReason) else "?"
+            y += self._draw_label(
+                surf, 20, y, f"Match over  -  no winner  ({tname})",
                 _COLOR_WARN,
             )
             y += 28

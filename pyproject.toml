@@ -20,6 +20,7 @@ train = [
     "numpy>=1.23.0",
     "setuptools>=61.0,<82",
     "tensorboard>=2.15.0",
+    "ray[rllib]>=2.10.0,<2.60.0",
 ]
 
 [tool.setuptools.packages.find]

@@ -10,7 +10,6 @@ import argparse
 import random
 import sys
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -26,8 +25,15 @@ from dungeon_runner.bots import RandomBot
 from dungeon_runner.match import MatchPhase
 from dungeon_runner.pettingzoo_aec import WtdAECEnv
 from dungeon_runner.rl import actions_codec, observation
-from dungeon_runner.rl.model import PolicyValueModel
-from dungeon_runner.rl.ppo import PPOConfig, RolloutBatch, compute_gae, ppo_minibatch_update, sample_action
+from dungeon_runner.rl.model import DEFAULT_PPO_HIDDEN, PolicyValueModel
+from dungeon_runner.rl.ppo import (
+    PPOConfig,
+    RolloutBatch,
+    RolloutGameStats,
+    compute_gae,
+    ppo_minibatch_update,
+    sample_action,
+)
 from dungeon_runner.types_core import AdventurerKind
 
 
@@ -39,18 +45,6 @@ def sample_episode(rng: np.random.Generator) -> tuple[int, list[bool], int, Adve
     st = int(rng.integers(0, n))
     h = AdventurerKind(int(rng.integers(0, 4)))
     return n, roles, st, h
-
-
-@dataclass
-class RolloutGameStats:
-    n_episodes: int = 0
-    n_decided: int = 0
-    n_truncated: int = 0
-    episode_lengths: list[int] = field(default_factory=list)
-    n_all_nn: int = 0
-    nn_wins: int = 0
-    nn_games: int = 0
-    env_steps: int = 0
 
 
 def _log_game_scalars(step: int, g: RolloutGameStats, mean_r: float) -> None:
@@ -172,6 +166,12 @@ def main() -> None:
         help="Write logdir/policy.weights.h5 every N updates; 0 = only at the end.",
     )
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument(
+        "--weights",
+        type=Path,
+        default=None,
+        help="If this file exists, load Keras policy weights after building the model (default: logdir/policy.weights.h5).",
+    )
     args = ap.parse_args()
     tf.random.set_seed(args.seed)
     np_r = np.random.default_rng(args.seed)
@@ -179,11 +179,15 @@ def main() -> None:
     env = WtdAECEnv()
     n, roles, st, h0 = sample_episode(np_r)
     env.reset(seed=int(np_r.integers(0, 2**30)), options={"n_players": n, "start_seat": st, "first_hero": h0})
-    model = PolicyValueModel(hidden=(512, 512, 512, 256))
+    wpath = args.weights if args.weights is not None else args.logdir / "policy.weights.h5"
+    model = PolicyValueModel(hidden=DEFAULT_PPO_HIDDEN)
     _ = model(  # build
         tf.zeros((1, observation.OBS_DIM), tf.float32),
         tf.zeros((1, actions_codec.N_ACTIONS), tf.float32),
     )
+    if wpath.is_file():
+        model.load_weights(wpath)
+        print("loaded", wpath, file=sys.stderr)
     opt = keras.optimizers.Adam(3e-4)
     bot = RandomBot()
     cfg = PPOConfig()

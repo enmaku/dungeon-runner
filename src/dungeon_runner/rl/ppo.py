@@ -12,6 +12,18 @@ from dungeon_runner.rl.model import PolicyValueModel
 
 
 @dataclass
+class RolloutGameStats:
+    n_episodes: int = 0
+    n_decided: int = 0
+    n_truncated: int = 0
+    episode_lengths: list[int] = field(default_factory=list)
+    n_all_nn: int = 0
+    nn_wins: int = 0
+    nn_games: int = 0
+    env_steps: int = 0
+
+
+@dataclass
 class RolloutBatch:
     obs: list[np.ndarray] = field(default_factory=list)
     mask: list[np.ndarray] = field(default_factory=list)

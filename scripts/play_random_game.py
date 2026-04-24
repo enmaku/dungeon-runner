@@ -94,6 +94,8 @@ def state_line(m: Match) -> str:
 
     if m.phase is MatchPhase.ENDED:
         r = m.terminal_reason.name.replace("_", " ").lower() if m.terminal_reason else "?"
+        if m.winner_seat is None:
+            return f"No winner  ({r})"
         return f"Winner seat {m.winner_seat} ({r})"
 
     return m.phase.name

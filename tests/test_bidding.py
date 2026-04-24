@@ -4,7 +4,7 @@ import pytest
 
 import dungeon_runner.actions as A
 from dungeon_runner.errors import IllegalAction
-from dungeon_runner.match import BiddingState, Match, MatchPhase
+from dungeon_runner.match import BiddingState, Match, MatchPhase, MatchTerminalReason
 from dungeon_runner.types_core import AdventurerKind
 
 
@@ -31,3 +31,12 @@ def test_two_player_pass_gives_sole_runner():
     m.apply(A.PassBid())
     assert m.phase is MatchPhase.DUNGEON
     assert m.runner_seat == 1
+
+
+def test_empty_deck_bidding_with_no_pile_ends_house_stale():
+    m = Match.new(2, random.Random(0), AdventurerKind.WARRIOR, 0)
+    m.monster_deck = []
+    m.apply(A.PassBid())
+    assert m.phase is MatchPhase.ENDED
+    assert m.winner_seat is None
+    assert m.terminal_reason is MatchTerminalReason.BIDDING_EMPTY_STALE

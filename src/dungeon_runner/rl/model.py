@@ -29,6 +29,9 @@ from dungeon_runner.rl import actions_codec, observation
 
 LOGIT_MASK = -1.0e9
 
+# Source of truth for PPO: train.py, train_rllib.py, and shared H5 must match.
+DEFAULT_PPO_HIDDEN: tuple[int, ...] = (512, 512, 512, 256)
+
 
 def _mlp_trunk(
     hidden: tuple[int, ...],
@@ -50,7 +53,7 @@ class PolicyValueModel(keras.Model):
         self,
         obs_dim: int = observation.OBS_DIM,
         n_actions: int = actions_codec.N_ACTIONS,
-        hidden: tuple[int, ...] = (512, 512, 256),
+        hidden: tuple[int, ...] = DEFAULT_PPO_HIDDEN,
         use_layer_norm: bool = True,
         activation: str = "relu",
     ) -> None:

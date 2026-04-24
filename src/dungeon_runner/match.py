@@ -46,6 +46,8 @@ ALL_SPECIES: ClassVar[Final[tuple[Species, ...]]] = (
 class MatchTerminalReason(Enum):
     SECOND_SUCCESS = auto()
     LAST_STANDING = auto()
+    # House rule: all passed with nothing in the deck or dungeon pile; no one runs.
+    BIDDING_EMPTY_STALE = auto()
 
 
 class MatchPhase(Enum):
@@ -288,7 +290,12 @@ class Match:
             return
         if isinstance(action, A.PassBid):
             p.has_passed_bid = True
-            if self._count_active_bidders() == 1:
+            c = self._count_active_bidders()
+            if c == 0:
+                self._end_m(MatchTerminalReason.BIDDING_EMPTY_STALE, None)
+            elif c == 1 and self._bidding_stale_house():
+                self._end_m(MatchTerminalReason.BIDDING_EMPTY_STALE, None)
+            elif c == 1:
                 self._end_bidding()
             else:
                 self._advance_bid_seat()
@@ -666,7 +673,15 @@ class Match:
         self.phase = MatchPhase.PICK_ADVENTURER
         self.dungeon_sub = None
 
-    def _end_m(self, reason: MatchTerminalReason, w: int) -> None:
+    def _bidding_stale_house(self) -> bool:
+        return (
+            self.bidding_sub is BiddingState.TURN
+            and not self.monster_deck
+            and self.pending_card is None
+            and not self.dungeon_pile
+        )
+
+    def _end_m(self, reason: MatchTerminalReason, w: int | None) -> None:
         self.phase = MatchPhase.ENDED
         self.terminal_reason = reason
         self.winner_seat = w
