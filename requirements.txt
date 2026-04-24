@@ -1,2 +1,3 @@
 -e .
 pytest>=7.0
+# For neural training, TensorFlow, PettingZoo, etc.:  pip install -e ".[train]"

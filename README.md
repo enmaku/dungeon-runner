@@ -86,11 +86,9 @@ Exact layout (`src/`, `tests/`, entrypoints) will appear once the simulator exis
 
 ## Quickstart
 
-*(To be written after `requirements.txt` and a runnable entrypoint exist.)*
-
-Typical flow will be something like: create a virtualenv, `pip install -r requirements.txt` (or `pip install -e .`), run the game client or training script.
-
-**Pygame table-style UI** (optional, for `scripts/play_random_game.py` with `--gui`): `pip install -e ".[gui]"`. Layout uses facedown cards and a full equipment row (X for sacrificed/used). Pass `--god` to show exact deck and draw faces; defaults are slow on purpose—use `--step-ms` / `--dungeon-step-ms` to tune.
+1. Create a virtualenv, then: `pip install -r requirements.txt` (or `pip install -e .`) and `pytest` to verify the game engine.
+2. **PPO training (optional):** `pip install -e ".[train]"`, then e.g. `python scripts/train.py --logdir runs/my_run` (long run: default is 10k PPO updates; add `--updates 5` for a quick smoke test). Weights land at `logdir/policy.weights.h5` (also rewritten every `--save-every` steps, default 500, while training); run `tensorboard --logdir=runs/my_run` for scalars (PPO `loss/*`, `rollout/*`, and `game/*` such as `nn_win_rate` and self-play vs mixed-bot fraction). Default is CPU; for GPU, install a CUDA-enabled TensorFlow build and use your usual device env vars.
+3. **Pygame table-style UI** (optional, for `scripts/play_random_game.py` with `--gui`): `pip install -e ".[gui]"`. Layout uses facedown cards and a full equipment row (X for sacrificed/used). Pass `--god` to show exact deck and draw faces; defaults are slow on purpose—use `--step-ms` / `--dungeon-step-ms` to tune.
 
 ## Long-term (not committed work)
 
