@@ -1,108 +1,53 @@
 # dungeon-runner
 
-Train a neural network to play [*Welcome to the Dungeon*](https://iellogames.com/games/welcome-to-the-dungeon/) (IELLO / Oink Games): a pygame-backed game environment with **TensorFlow** (`tf.keras`) for the policy and **TensorBoard** for run metrics—**custom** training loops in Python (no general-purpose RL framework as the primary path).
+A Python implementation of [*Welcome to the Dungeon*](https://iellogames.com/games/welcome-to-the-dungeon/) (IELLO / Oink Games) with a **match engine**, a [**PettingZoo**](https://pettingzoo.farama.org/) **AEC** environment, optional **TensorFlow / Keras** PPO training (hand-written update loop, not a third-party RL library as the main path), optional **pygame** UI, and **TensorBoard** run metrics.
 
-## Docs
+## What’s in the tree
 
-- [`docs/welcome-to-the-dungeon.md`](docs/welcome-to-the-dungeon.md) — **rules and sim semantics** from a verified physical copy (monsters, equipment, round flow, implementation notes for parity/fairness). This file does **not** duplicate toolchain choices here; the README is the source for **PettingZoo**, **TensorFlow**, and RL-facing observation/reward design.
+| Area | Location |
+|------|----------|
+| Game rules and state | `src/dungeon_runner/match.py`, `actions.py`, `catalog.py`, … |
+| PettingZoo env | `src/dungeon_runner/pettingzoo_aec.py` — `WtdAECEnv` (2–4 players) |
+| RL: observations, action codec, PPO, model | `src/dungeon_runner/rl/` |
+| Bots | `src/dungeon_runner/bots/` (e.g. weighted-random) |
+| Table UI | `src/dungeon_runner/ui/pygame_view.py` (used by the play script, not by training) |
+| Scripts | `scripts/train.py` (PPO vs bot), `scripts/train_rllib.py` (PPO, Ray-parallel self-play, same Keras loop), `scripts/play_random_game.py` |
+| Rules reference (physical-game parity) | [`docs/welcome-to-the-dungeon.md`](docs/welcome-to-the-dungeon.md) |
 
-## Scope (near term)
+Tests live under `tests/`. The package is installable with **`pip install -e .`** ([`pyproject.toml`](pyproject.toml)); optional groups are `dev` (pytest), `gui` (pygame), `train` (TensorFlow, PettingZoo, Ray, etc.). A thin [`requirements.txt`](requirements.txt) installs the editable package plus pytest for a minimal dev setup.
 
-- **Players:** **2–4** seats; each seat is either a **human** or an **agent**
-- **Human at the table:** implementations can assume **one human** + **N** agents for a long time; **multi-human** seating and input routing are **out of scope** until you explicitly need them.
-- **UI:** **text-first** is fine (console / TUI / structured logs). No dependency on a polished graphical client in this repo.
-- **Partial observability:** per the rules doc, seats don’t see others’ dungeon adds; **what each seat is allowed to know** in code is spelled under **Observation / state** below. **Human UI:** list each seat’s **own** dungeon adds as a memory aid so humans match agent state ([Information (bidding phase)](docs/welcome-to-the-dungeon.md#information-bidding-phase) in the rules doc).
+## Rules and behavior
 
-## Architecture (decided)
+Tournament rules, equipment, and phase flow that matter for the simulator (including what information each seat is allowed) are documented in the rules file above. The README only summarizes how this repo encodes that.
 
-- **Environment API:** [**PettingZoo**](https://pettingzoo.farama.org/) **AEC** (agent–environment–cycle)—**bidding** follows **clockwise** seat order with one `agent_selection` at a time. **Dungeon phase** is **runner-only** for meaningful actions and observations ([rules doc](docs/welcome-to-the-dungeon.md#dungeon-phase-that-player-only)); other seats are idle until the next round—model the env that way (e.g. only the runner steps, or others get masked / no-op transitions), not as if every seat still bid in circle during the dungeon.
-- **Training:** the game has **no solo mode**; every training episode is **multi-seat** in one match (typically **one shared policy** stepping for whichever seat is active—see **Policy / weights**). **Player count:** sample **2, 3, or 4** seats **at random every episode** (2p and 4p play very differently—you want the policy exposed to all). **No** staged “ramp” difficulty—the game does not offer a clean curriculum axis beyond seat count, so we do **not** plan one.
-- **Policy / weights (v1):** **one** `tf.keras` model with **shared trainable weights** across all seat indices—every seat’s updates apply to the **same** parameters (you may still feed **seat index** or symmetry-breaking features in the observation if useful). **Personalities** stay in **wrappers** (temperature on logits, priors, ε-biases, etc.). **Separate weight copies** per seat remain a later ablation if you want them; switching is mostly “instantiate N models vs 1” plus how you aggregate gradients, not a rules-engine change.
-- **Playtesting:** you sit in **one** seat; any other seats can be agents (any mix of wrappers / checkpoints).
+- **Bidding** runs in clockwise seat order with a single `agent_selection` in AEC. **Dungeon** actions are for the **runner** only; other agents do not act (see the rules link for the actual game). Training samples **2, 3, or 4** players per episode (`sample_episode` in `scripts/train.py`, `sample_episode_config` in `src/dungeon_runner/rl/rllib_keras_module.py`) so the policy sees varied table sizes.
+- **Partial observability:** the observation builder follows “honest” information per seat (e.g. your own dungeon adds, public pile count, not others’ hidden cards). The vector is fixed-size: **`observation.OBS_DIM`** (87 floats) with an action mask, described in `src/dungeon_runner/rl/observation.py`. It is **current state only**—no opponent history channel.
+- The pygame client lists each player’s own dungeon adds to align human play with the vector state (see the rules doc section on bidding information).
 
-### Observation / state (decided)
+## Training
 
-**Bidding — current seat always includes:**
+- **`PolicyValueModel`** in `src/dungeon_runner/rl/model.py` is a single shared-weights policy–value network used for every active seat. Hyperparameters like hidden width use **`DEFAULT_PPO_HIDDEN`** in that file.
+- **`scripts/train.py`** runs a custom **PPO** loop: collects rollouts in-process against a **random** bot, logs TensorBoard scalars under `logdir/scalars/`, and saves **`logdir/policy.weights.h5`**. If `--weights` is omitted, it loads `logdir/policy.weights.h5` when that file exists.
+- **`scripts/train_rllib.py`** runs the **same** Keras PPO update but uses **Ray** to collect self-play rollouts in parallel. It is **not** RLlib’s PPO `Algorithm`—Ray is for **sampling** only, because Ray 2.5+ does not match this project’s portable `Model.save_weights` / `load_weights` workflow. On **macOS**, if workers spin up poorly, use Ray’s [local resource notes](https://docs.ray.io/en/latest/ray-core/configure.html#local-cluster-setup).
+- **Optimizer state is not saved**; switching between scripts or restarts you still load the same H5 **weights** but a fresh **Adam** state.
 
-- **Dungeon pile size** (card count)—**public** to all seats per rules ([public count](docs/welcome-to-the-dungeon.md#bidding-phase-clockwise)); include it in every honest observation.
-- **Their own adds** to the dungeon (full card identities), not other seats’ hidden adds.
-- **Equipment still available** — the **six equipment tiles** (minus sacrifices this round) **under the shared adventurer** in the center, per [Equipment](docs/welcome-to-the-dungeon.md#equipment) / bidding text—not a separate informal “pool.”
-- If applicable: **the card they drew** from the pile (after a draw), until the rules clear or replace that knowledge.
+Reward scales for match and dungeon are centralized in `src/dungeon_runner/rl/rewards.py` and applied in `WtdAECEnv.step` (e.g. match end and dungeon completion or failure, including the Omnipotence-style dungeon success case when the run still counts as a win). TensorBoard tags include `loss/*`, `rollout/*` (e.g. `mean_reward`, `nn_transitions`), and `game/*` (e.g. win rate, episode length, truncation rate).
 
-**Dungeon / choice points:**
+**Smoke:** after `pip install -e ".[train]"`, `python scripts/train.py --logdir runs/smoke --updates 5` and open TensorBoard on `runs/smoke/scalars` if you want a short trace.
 
-- **Who acts:** only the **runner** (the single seat who won the bid) takes dungeon actions; the rules doc is explicit ([Dungeon phase](docs/welcome-to-the-dungeon.md#dungeon-phase-that-player-only)).
-- The runner uses the **same information they had at bidding** (no resetting memory between phases).
-- **Plus** everything they have **already revealed** from the **dungeon pile** this run (order and identities matter where the rules care—e.g. **Polymorph**, **Fire Axe**).
+## Pygame (optional)
 
-**Design stance:**
+`pip install -e ".[gui]"` and run `play_random_game.py` with `--gui` for a table layout (facedown cards, equipment row, `--god` to reveal the deck, `--step-ms` / `--dungeon-step-ms` to slow automation).
 
-- You expect **current-state–only** to be enough for learning in this small game—no play-history channel in v1 (who passed when, who removed which equipment, etc.). Those can be added later if training stalls.
-- **Vectorization:** **fairly maximal** for v1: encode a **full, legal, current snapshot** the seat may use to decide (fixed layouts, embeddings for IDs, legal-action masks as needed)—not a stripped-down minimal encoding. Trim history, not present-state richness.
+## Out of scope here
 
-### Learning (decided)
+- Multi-seated **human** hot-seat routing: the UI and scripts assume a simple human + bots or full-bot setup.
+- **CI** and external experiment services are not set up; logs and weights are local and TensorBoard-only by default.
+- A separate **web** or browser client, if you ever want one, would be another project.
 
-- **Goal:** this project is partly a **learning exercise**—you want to **implement the RL update yourself** (policy gradients / advantages / whatever you choose), not hide that work behind a general-purpose RL framework for v1.
-- **Stack:** **TensorFlow**, using the **Keras** API (`tf.keras`) for the **network** (layers, forward pass, etc.). Training logic (sampling actions, computing losses, applying gradients) lives in **your own Python**, calling into Keras models and TF optimizers.
-- **Out of scope for a single “turnkey” third-party PPO** as the *only* path: the repo keeps a **first-class custom Keras loop**; optional `train_rllib.py` adds **Ray-parallel** self-play while still using that same Keras PPO, not a separate RLlib-only policy. **TF-Agents** and similar are still optional extras.
+## Official rulebook
 
-### Rewards (decided — high level)
-
-- **Largest:** winning the **overall match** (second **Success** card, or last player standing after others are eliminated).
-- **Large (smaller than match win):** **surviving a dungeon** successfully (getting a **Success** toward the match—includes **Omnipotence** saves, since that still counts as a dungeon win).
-- **Severe penalty:** **dying** in the sense that ends or derails you badly—treat as **elimination** (failed two dungeons / aid goes red twice) **and/or** a **dungeon run that ends in death** without a save, depending on what you wire; the point is “**being out**” or “**throwing the run**” should hurt a lot more than missing a marginal bid.
-
-Exact numeric scales stay **TBD** in code; philosophy is **strong match signal**, **strong dungeon signal**, **heavy stick** for terminal failure.
-
-**Edge cases / wrong lessons to watch for**
-
-- **Omnipotence:** the runner **hits** the death branch, then **wins** the dungeon anyway. They must get the **dungeon success** reward (and **not** the full “you died” penalty), or the net teaches “avoid Omnipotence lines.” Spell this in the env’s reward hook when you implement it.
-- **Win without dungeon heroics:** winning because **everyone else was eliminated** is still a **match** win—credit that; don’t accidentally only reward “I entered every dungeon.”
-- **Who gets the number (wire-time choice):** when you implement PettingZoo returns, decide whether **only** the **active** agent gets step rewards, or everyone gets **terminal** payouts from their own seat’s perspective—and document the choice next to the reward hook.
-- **Sparse mid-game:** long bidding with **no** dungeon yet means **long stretches with no learning signal** except the eventual big chunks—that’s OK for this design, but learning may be slow early; wrappers / self-play diversity help.
-- **Good sacrifice looks dumb locally:** throwing away a torch to dodge a bad dungeon can look like “lost value” without match-level context; your scheme avoids tiny per-action rewards, which is good—just don’t add small shaped rewards later that punish sacrifices by accident.
-
-## Planned stack
-
-| Piece | Role |
-|--------|------|
-| **Python** | Project language |
-| **PettingZoo** | AEC multi-agent env interface (`parallel` not the default fit) |
-| **pygame** | Timestep / display loop (can run headless for training) |
-| **TensorFlow + Keras** | Neural net (`tf.keras`); **custom** training loop (no RL framework as primary path) |
-
-Exact layout (`src/`, `tests/`, entrypoints) will appear once the simulator exists.
-
-### Tooling (decided)
-
-- **Python:** default to **current stable** from [python.org](https://www.python.org/downloads/) (bump the minor you develop on as new releases ship; only pin an older version if a dependency like TensorFlow lags).
-- **Dependencies:** **`pip`** + **`requirements.txt`**—no Poetry / `uv` project as the default layout for v1.
-- **CI:** **ad-hoc** until you explicitly want a pipeline; nothing committed here yet.
-
-### Logging & checkpoints (decided)
-
-- **TensorBoard** for scalars (loss, returns, win rate, etc.) and any extra summaries you want; standard **`tensorboard --logdir=...`** workflow.
-- **Weights on disk** via **TensorFlow’s** checkpointing (`tf.train.Checkpoint` and/or `Model.save_weights`), organized under per-run directories alongside the TB log (no W&B / external experiment service as the default for v1).
-
-## Quickstart
-
-1. Create a virtualenv, then: `pip install -r requirements.txt` (or `pip install -e .`) and `pytest` to verify the game engine.
-2. **PPO training (optional):** `pip install -e ".[train]"` (includes [Ray](https://docs.ray.io/) for the self-play script). There are two entry points that share the **same** Keras architecture (`PolicyValueModel`, see `src/dungeon_runner/rl/model.py::DEFAULT_PPO_HIDDEN`) and the **same** optional weights file **`logdir/policy.weights.h5`**. Only the **network weights** are shared; **optimizer (Adam) state** is *not*—switching between scripts starts a fresh optimizer but loads the same policy.
-   - `python scripts/train.py --logdir runs/my_run` — custom loop vs a **weighted-random** bot. Default `--weights` is `logdir/policy.weights.h5` if that file exists. Long runs default to 10k PPO updates; add `--updates 5` to smoke test.
-   - `python scripts/train_rllib.py --logdir runs/my_sp` — **self-play only** (all seats NN); uses **Ray** to parallelize rollouts with the same hand-rolled Keras PPO as `train.py`. Ray 2.5+ does not expose a Keras / TF PPO on the new RLlib stack in a way that would keep portable `save_weights`/`load_weights` compatible, so this script is **not** a drop-in to `rllib`’s PPO `Algorithm`—it is Ray for **sampling** only, plus shared H5. On macOS, you may need to start Ray in a [supported configuration](https://docs.ray.io/en/latest/ray-core/configure.html#local-cluster-setup) if you see multiprocessing or resource issues.
-   Weights are also written every `--save-every` (default 500) during training, and a final H5 is written at the end. `tensorboard --logdir=.../scalars` for PPO `loss/*`, `rollout/*`, and `game/*`. Default is CPU; for GPU, install a CUDA-enabled TensorFlow build and use your usual device env vars.
-3. **Pygame table-style UI** (optional, for `scripts/play_random_game.py` with `--gui`): `pip install -e ".[gui]"`. Layout uses facedown cards and a full equipment row (X for sacrificed/used). Pass `--god` to show exact deck and draw faces; defaults are slow on purpose—use `--step-ms` / `--dungeon-step-ms` to tune.
-
-## Long-term (not committed work)
-
-These depend on how training goes and are **not** required for the current codebase:
-
-- A **graphical** client, likely **web**-based, as a **separate project** if you pursue it.
-- Running a **trained network in the browser** only really pays off if learning produces a strong policy worth shipping.
-
-## Rulebook
-
-Official English PDF from the publisher: [Welcome to the Dungeon — English rulebook](https://iellogames.com/wp-content/uploads/2016/08/Welcome-to-the-Dungeon-EN-Rulebook_web.pdf).
+Publisher PDF: [Welcome to the Dungeon — English rulebook](https://iellogames.com/wp-content/uploads/2016/08/Welcome-to-the-Dungeon-EN-Rulebook_web.pdf).
 
 ## License
 
