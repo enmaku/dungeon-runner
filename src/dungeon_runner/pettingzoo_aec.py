@@ -13,7 +13,7 @@ from pettingzoo import AECEnv
 from pettingzoo.utils import env as pz_env
 from pettingzoo.utils import wrappers
 
-from dungeon_runner.match import Match, MatchPhase
+from dungeon_runner.match import Match, MatchPhase, MatchTerminalReason
 from dungeon_runner.rl import actions_codec, observation
 from dungeon_runner.rl import rewards as R
 from dungeon_runner.types_core import AdventurerKind
@@ -158,6 +158,7 @@ class WtdAECEnv(
         if adec is None or adec not in m0.legal_actions():
             err = f"invalid action {action!r} → {adec!r} legal {m0.legal_actions()!r}"
             raise ValueError(err)
+        actor = self.agent_selection
         m0.apply(typing.cast(A.Action, adec))  # type: ignore[unused-ignore]
         self._step_i += 1
         m = self._m
@@ -174,10 +175,14 @@ class WtdAECEnv(
         self.rewards = {a: 0.0 for a in self.possible_agents}
         if m.phase is MatchPhase.ENDED:
             w = m.winner_seat
+            tr = m.terminal_reason
             for a in self.agents:
                 s = int(a)
                 if w is not None and s == w:
-                    self.rewards[a] = R.REWARD_MATCH_WIN
+                    if tr is MatchTerminalReason.SECOND_SUCCESS:
+                        self.rewards[a] = R.REWARD_MATCH_WIN_SUCCESS
+                    else:
+                        self.rewards[a] = R.REWARD_MATCH_WIN_STANDING
                 else:
                     self.rewards[a] = R.REWARD_MATCH_LOSE
             if rnr0 is not None and phase_b is MatchPhase.DUNGEON and m.players[rnr0].success_cards > p_succ0:
@@ -190,6 +195,8 @@ class WtdAECEnv(
                 self.rewards[str(rnr0)] = R.REWARD_DUNGEON_SUCCESS
             elif pr.aid_flips > p_aid0 or pr.eliminated:
                 self.rewards[str(rnr0)] = R.REWARD_DUNGEON_FAIL
+        if m.phase is not MatchPhase.ENDED and actor in self.agents:
+            self.rewards[actor] = (self.rewards.get(actor) or 0.0) + R.REWARD_PER_ACTION
         self._accumulate_rewards()
         if m.phase is MatchPhase.ENDED:
             for a in self.agents:

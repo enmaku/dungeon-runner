@@ -11,7 +11,7 @@ A Python implementation of [*Welcome to the Dungeon*](https://iellogames.com/gam
 | RL: observations, action codec, PPO, model | `src/dungeon_runner/rl/` |
 | Bots | `src/dungeon_runner/bots/` (e.g. weighted-random) |
 | Table UI | `src/dungeon_runner/ui/pygame_view.py` (used by the play script, not by training) |
-| Scripts | `scripts/train.py` (PPO vs bot), `scripts/train_rllib.py` (PPO, Ray-parallel self-play, same Keras loop), `scripts/play_random_game.py` |
+| Scripts | `scripts/train.py` (PPO vs bot), `scripts/train_rllib.py` (PPO, Ray-parallel self-play, same Keras loop), `scripts/oscillate_train.py` (alternate those two; each run uses `logdir/1/`, `2/`, … only), `scripts/play_random_game.py` |
 | Rules reference (physical-game parity) | [`docs/welcome-to-the-dungeon.md`](docs/welcome-to-the-dungeon.md) |
 
 Tests live under `tests/`. The package is installable with **`pip install -e .`** ([`pyproject.toml`](pyproject.toml)); optional groups are `dev` (pytest), `gui` (pygame), `train` (TensorFlow, PettingZoo, Ray, etc.). A thin [`requirements.txt`](requirements.txt) installs the editable package plus pytest for a minimal dev setup.
@@ -30,8 +30,9 @@ Tournament rules, equipment, and phase flow that matter for the simulator (inclu
 - **`scripts/train.py`** runs a custom **PPO** loop: collects rollouts in-process against a **random** bot, logs TensorBoard scalars under `logdir/scalars/`, and saves **`logdir/policy.weights.h5`**. If `--weights` is omitted, it loads `logdir/policy.weights.h5` when that file exists.
 - **`scripts/train_rllib.py`** runs the **same** Keras PPO update but uses **Ray** to collect self-play rollouts in parallel. It is **not** RLlib’s PPO `Algorithm`—Ray is for **sampling** only, because Ray 2.5+ does not match this project’s portable `Model.save_weights` / `load_weights` workflow. On **macOS**, if workers spin up poorly, use Ray’s [local resource notes](https://docs.ray.io/en/latest/ray-core/configure.html#local-cluster-setup).
 - **Optimizer state is not saved**; switching between scripts or restarts you still load the same H5 **weights** but a fresh **Adam** state.
+- **`python scripts/oscillate_train.py runs/v0.1a`** (requires `[train]`) alternates the two training scripts. Each run uses **only** `logdir/1/`, `logdir/2/`, … (`--logdir` points at that folder, so H5 and TensorBoard stay under the number, not the run root). Segment `n>1` loads from `logdir/(n-1)/policy.weights.h5`. For `n=1`, if that file is missing, it is seeded from `logdir/policy.weights.h5` if present, else a fresh model. The run-root `policy.weights.h5` is never the file the trainers read or write; copy your starting weights there to seed a new `1/`.
 
-Reward scales for match and dungeon are centralized in `src/dungeon_runner/rl/rewards.py` and applied in `WtdAECEnv.step` (e.g. match end and dungeon completion or failure, including the Omnipotence-style dungeon success case when the run still counts as a win). TensorBoard tags include `loss/*`, `rollout/*` (e.g. `mean_reward`, `nn_transitions`), and `game/*` (e.g. win rate, episode length, truncation rate).
+Reward scales are in `src/dungeon_runner/rl/rewards.py` and applied in `WtdAECEnv.step`: a larger bonus for a **second-success** match win than for **last one standing**; a small per-action shaping term on the active agent; dungeon fail milder than full match loss; same dungeon-success handling when a step ends the run (e.g. Omnipotence). TensorBoard tags include `loss/*`, `rollout/*` (e.g. `mean_reward`, `nn_transitions`), and `game/*` (e.g. win rate, episode length, truncation rate).
 
 **Smoke:** after `pip install -e ".[train]"`, `python scripts/train.py --logdir runs/smoke --updates 5` and open TensorBoard on `runs/smoke/scalars` if you want a short trace.
 

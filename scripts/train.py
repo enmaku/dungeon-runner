@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PPO training: shared policy vs weighted-random bot, random 2–4p.
+"""PPO training: shared policy on one random seat per match vs RandomBot on all others (2–4p).
 
 Requires: ``pip install -e ".[train]"``
 """
@@ -39,9 +39,8 @@ from dungeon_runner.types_core import AdventurerKind
 
 def sample_episode(rng: np.random.Generator) -> tuple[int, list[bool], int, AdventurerKind]:
     n = int(rng.integers(2, 5))
-    roles = [bool(rng.random() < 0.5) for _ in range(n)]
-    if not any(roles):
-        roles[int(rng.integers(0, n))] = True
+    nn_seat = int(rng.integers(0, n))
+    roles = [i == nn_seat for i in range(n)]
     st = int(rng.integers(0, n))
     h = AdventurerKind(int(rng.integers(0, 4)))
     return n, roles, st, h
