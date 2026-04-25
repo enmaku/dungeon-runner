@@ -149,7 +149,7 @@ def main() -> None:
     ap.add_argument(
         "--updates",
         type=int,
-        default=5000,
+        default=1000,
         help="Number of PPO update steps (one rollout + optimization each). Use a small value (e.g. 5) for a smoke test.",
     )
     ap.add_argument(
