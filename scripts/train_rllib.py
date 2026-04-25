@@ -118,7 +118,7 @@ def main() -> None:
         help="Target NN transitions per PPO update (split across --num-workers).",
     )
     ap.add_argument(
-        "--updates", type=int, default=10_000, help="PPO update steps. Use 2–5 to smoke test."
+        "--updates", type=int, default=5000, help="PPO update steps. Use 2–5 to smoke test."
     )
     ap.add_argument(
         "--log-every", type=int, default=100, help="Print loss to stdout every N updates."
