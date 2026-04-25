@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""Simulate a match with random legal moves (weighted sampling).
+"""Simulate a match with per-seat policies: weighted random and/or Keras checkpoints.
 
-Policy knobs below (--pass-weight, --sacrifice-weight, min pile before pass) exist only
-to make this script produce nicer toy runs. They are not enforced by ``Match`` and are
-not part of the real Welcome to the Dungeon ruleset.
+Use ``--p0`` … ``--p3`` to set each seat to ``random`` or a path to a training logdir
+(containing ``policy.weights.h5``) or to an ``.h5`` file. Omitted seats default to
+``random``. Model seats need ``pip install -e ".[train]"`` (TensorFlow).
 
-Bidding sim policy (on top of those bases): the effective pass weight scales up with
-dungeon pile size; the effective sacrifice weight goes down for each equipment
-piece already set aside to dodge cards this round; when a facedown card is pending,
-sacrifice is weighted by that card's strength. In the dungeon, Vorpal declaration
-is weighted by each species' base strength (see module constants).
+Example: ``--players 2 --p0 runs/v0.1a/3 --p1 random`` loads seat 0 from that
+logdir's ``policy.weights.h5``. Example: ``--p0 runs/a/1 --p2 runs/b/2 --players 3``
+uses two different checkpoints on seats 0 and 2.
+
+Policy knobs below (--pass-weight, --sacrifice-weight, min pile before pass) apply only
+to **random** seats; they are not enforced by ``Match`` and are not part of the real
+Welcome to the Dungeon ruleset.
+
+Bidding sim policy (random seats): the effective pass weight scales up with dungeon
+pile size; sacrifice weight decays with sacrifice rows; pending-card strength scales
+sacrifice; Vorpal is weighted by species base strength (see ``dungeon_runner.bots``).
 
 With ``--gui`` / ``--visual``, opens a pygame window (install ``.[gui]``) in a
 **table-style** layout: facedown cards, private draw, and equipment with pieces
@@ -101,6 +107,58 @@ def state_line(m: Match) -> str:
     return m.phase.name
 
 
+def _parse_player_spec(spec: str) -> tuple[str, Path | None]:
+    s = spec.strip()
+    if s.lower() == "random":
+        return ("random", None)
+    p = Path(s).expanduser()
+    if not p.exists():
+        msg = f"path does not exist: {spec!r}"
+        raise ValueError(msg)
+    p_res = p.resolve()
+    if p_res.is_file() and p_res.suffix.lower() == ".h5":
+        return ("model", p_res)
+    if p_res.is_dir():
+        return ("model", p_res / "policy.weights.h5")
+    msg = f"expected 'random', a directory with policy.weights.h5, or a .h5 file: {spec!r}"
+    raise ValueError(msg)
+
+
+def _load_policy_models(weight_paths: set[Path]) -> dict[Path, object]:
+    try:
+        import tensorflow as tf  # noqa: PLC0415
+        from dungeon_runner.rl import actions_codec, observation  # noqa: PLC0415
+        from dungeon_runner.rl.model import DEFAULT_PPO_HIDDEN, PolicyValueModel  # noqa: PLC0415
+    except ImportError as err:
+        print("Install: pip install -e \".[train]\"", file=sys.stderr)
+        raise SystemExit(1) from err
+
+    out: dict[Path, PolicyValueModel] = {}
+    for w in weight_paths:
+        model = PolicyValueModel(hidden=DEFAULT_PPO_HIDDEN)
+        _ = model(
+            tf.zeros((1, observation.OBS_DIM), tf.float32),
+            tf.zeros((1, actions_codec.N_ACTIONS), tf.float32),
+        )
+        model.load_weights(str(w))
+        out[w] = model
+    return out
+
+
+def _nn_select_action(m: Match, seat: int, model: object, legal: set[object]) -> object:
+    from dungeon_runner.rl import actions_codec, observation  # noqa: PLC0415
+    from dungeon_runner.rl.ppo import sample_action  # noqa: PLC0415
+
+    oa = observation.build_observation(m, seat)
+    mk = actions_codec.legal_mask(m)
+    ai, _, _ = sample_action(model, oa, mk)
+    a = actions_codec.decode_index(m, ai)
+    if a is None or a not in legal:
+        msg = f"NN sampled illegal action idx={ai} → {a!r}; legal count={len(legal)}"
+        raise SystemExit(msg)
+    return a
+
+
 def roster_line(m: Match) -> str:
     parts = []
     for i, pl in enumerate(m.players):
@@ -122,6 +180,14 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--players", type=int, default=3, help="2–4 (default 3)")
     ap.add_argument("--seed", type=int, default=None, help="RNG seed (optional)")
+    _ps = (
+        "Seat policy: 'random' or logdir / policy.weights.h5 path "
+        '(requires pip install -e ".[train]" for checkpoints). Default: random.'
+    )
+    ap.add_argument("--p0", metavar="SPEC", default=None, help=_ps)
+    ap.add_argument("--p1", metavar="SPEC", default=None, help=_ps)
+    ap.add_argument("--p2", metavar="SPEC", default=None, help=_ps)
+    ap.add_argument("--p3", metavar="SPEC", default=None, help=_ps)
     ap.add_argument(
         "--pass-weight",
         type=float,
@@ -171,6 +237,40 @@ def main() -> None:
         help="With --gui: how long the dungeon success/fail banner stays visible (ms)",
     )
     args = ap.parse_args()
+    n_pl = int(args.players)
+    if not 2 <= n_pl <= 4:
+        print(f"--players must be 2–4, got {n_pl}", file=sys.stderr)
+        raise SystemExit(2)
+
+    for i in range(4):
+        if getattr(args, f"p{i}", None) is not None and i >= n_pl:
+            print(f"warning: --p{i} ignored (--players {n_pl})", file=sys.stderr)
+
+    seat_specs: list[tuple[str, Path | None]] = []
+    try:
+        for i in range(n_pl):
+            raw = getattr(args, f"p{i}", None) or "random"
+            seat_specs.append(_parse_player_spec(raw))
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        raise SystemExit(2) from e
+
+    model_paths: set[Path] = {w for k, w in seat_specs if k == "model" and w is not None}
+    for i, (k, w) in enumerate(seat_specs):
+        if k == "model" and w is not None and not w.is_file():
+            print(f"seat {i}: missing weights file {w}", file=sys.stderr)
+            raise SystemExit(2)
+
+    models_by_path: dict[Path, object] = {}
+    if model_paths:
+        try:
+            import tensorflow as tf  # noqa: PLC0415
+        except ImportError as err:
+            print("Install: pip install -e \".[train]\"", file=sys.stderr)
+            raise SystemExit(1) from err
+        if args.seed is not None:
+            tf.random.set_seed(int(args.seed))
+        models_by_path = _load_policy_models(model_paths)
 
     view = None
     if args.gui:
@@ -192,11 +292,14 @@ def main() -> None:
         view = get_match_view(vcfg)
 
     rng = random.Random(args.seed)
-    m = Match.new(args.players, rng, AdventurerKind.WARRIOR, start_seat=0)
+    m = Match.new(n_pl, rng, AdventurerKind.WARRIOR, start_seat=0)
     step = 0
 
     seed_note = f" · seed {args.seed}" if args.seed is not None else ""
-    print(f"{args.players} players · Warrior first{seed_note}")
+    seat_desc = []
+    for i, (k, w) in enumerate(seat_specs):
+        seat_desc.append(f"p{i}={'random' if k == 'random' else str(w)}")
+    print(f"{n_pl} players · Warrior first · {' · '.join(seat_desc)}{seed_note}")
     print(roster_line(m), "—", state_line(m), end="\n\n")
 
     if view is not None:
@@ -211,17 +314,23 @@ def main() -> None:
         if not acts:
             print("No legal moves; stopping.")
             break
-        acts = random_sim_action_subset(m, acts)
-        if not acts:
-            print("Random-run policy left no moves; stopping.")
-            break
-        a = pick_action(
-            m,
-            acts,
-            rng,
-            pass_weight=args.pass_weight,
-            sacrifice_weight=args.sacrifice_weight,
-        )
+        seat = m.active_seat
+        sk, wpath = seat_specs[seat]
+        if sk == "random":
+            acts_n = random_sim_action_subset(m, acts)
+            if not acts_n:
+                print("Random-run policy left no moves; stopping.")
+                break
+            a = pick_action(
+                m,
+                acts_n,
+                rng,
+                pass_weight=args.pass_weight,
+                sacrifice_weight=args.sacrifice_weight,
+            )
+        else:
+            assert wpath is not None
+            a = _nn_select_action(m, seat, models_by_path[wpath], acts)
         step += 1
         line = describe_move(m, a)
         phase_before = m.phase
