@@ -28,9 +28,9 @@ def test_sacrifice_removes_equipment_monster_not_on_pile():
     assert m.sacrifice_rows[0].seat == 0
     assert len(m.dungeon_pile) == 0
     m.apply(A.PassBid())
-    assert m.phase is MatchPhase.DUNGEON
-    assert m.runner_seat == 0
-    assert "W_PLATE" not in m.d_in_play
+    assert m.phase is MatchPhase.ENDED
+    assert m.winner_seat is None
+    assert m.terminal_reason is MatchTerminalReason.EMPTY_DUNGEON_FORFEIT
 
 
 def test_draw_and_add_puts_monster_on_pile_and_tracks_own_adds():
@@ -117,29 +117,32 @@ def test_omnipotence_fails_when_sacrifice_duplicates_species():
 
 
 def test_three_player_two_dungeon_successes_end_match():
-    """First dungeon has an empty pile (two passes before sole runner); that still awards a Success per rules."""
+    """Runner wins first dungeon (one goblin on pile), then second success for match win."""
     rng = random.Random(0)
     deck = deck_in_draw_order(Species.GOBLIN)
     m = Match.new(3, rng, AdventurerKind.WARRIOR, start_seat=0, monster_deck=deck)
 
+    m.apply(A.DrawCard())
+    m.apply(A.AddToDungeon())
     m.apply(A.PassBid())
     m.apply(A.PassBid())
     assert m.phase is MatchPhase.DUNGEON
-    assert m.runner_seat == 2
+    assert m.runner_seat == 0
+    assert len(m.dungeon_pile) == 1
     play_dungeon(m)
     assert m.phase is MatchPhase.PICK_ADVENTURER
-    assert m.players[2].success_cards == 1
+    assert m.players[0].success_cards == 1
 
     play_pick(m, AdventurerKind.WARRIOR)
     m.apply(A.DrawCard())
     m.apply(A.AddToDungeon())
     m.apply(A.PassBid())
     m.apply(A.PassBid())
-    assert m.runner_seat == 2
+    assert m.runner_seat == 0
     play_dungeon(m)
     assert m.phase is MatchPhase.ENDED
     assert m.terminal_reason is MatchTerminalReason.SECOND_SUCCESS
-    assert m.winner_seat == 2
+    assert m.winner_seat == 0
 
 
 def test_two_dragon_dungeons_eliminate_runner():

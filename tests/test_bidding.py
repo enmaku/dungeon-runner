@@ -26,10 +26,12 @@ def test_no_equipment_only_add_after_draw():
     assert m.legal_actions() == {A.AddToDungeon()}
 
 
-def test_two_player_pass_gives_sole_runner():
+def test_two_player_one_pass_sole_bidder_empty_pile_forfeits():
     m = Match.new(2, random.Random(0), AdventurerKind.WARRIOR, 0)
     m.apply(A.PassBid())
-    assert m.phase is MatchPhase.DUNGEON
+    assert m.phase is MatchPhase.ENDED
+    assert m.winner_seat is None
+    assert m.terminal_reason is MatchTerminalReason.EMPTY_DUNGEON_FORFEIT
     assert m.runner_seat == 1
 
 

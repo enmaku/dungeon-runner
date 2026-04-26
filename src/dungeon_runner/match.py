@@ -48,6 +48,8 @@ class MatchTerminalReason(Enum):
     LAST_STANDING = auto()
     # House rule: all passed with nothing in the deck or dungeon pile; no one runs.
     BIDDING_EMPTY_STALE = auto()
+    # Sole bidder would run an empty pile with no bidding sacrifices (pass-only bidding).
+    EMPTY_DUNGEON_FORFEIT = auto()
 
 
 class MatchPhase(Enum):
@@ -330,6 +332,12 @@ class Match:
                 break
         else:
             raise RuntimeError("no runner after bidding")
+        if not self.dungeon_pile:
+            self._dlog(
+                "Forfeit — sole bidder with an empty dungeon pile (nothing to run); match ends with no winner."
+            )
+            self._end_m(MatchTerminalReason.EMPTY_DUNGEON_FORFEIT, None)
+            return
         self.dungeon_run_log.clear()
         self.active_seat = self.runner_seat
         self.dungeon_run_reward_difficulty = len(self.dungeon_pile) + len(self.sacrifice_rows)

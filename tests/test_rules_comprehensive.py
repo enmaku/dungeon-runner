@@ -406,25 +406,28 @@ def test_rogue_healing_potion_revives_to_base_only():
 # --- Bidding / match flow ---
 
 
-def test_three_player_pass_order_last_becomes_runner():
+def test_three_player_two_passes_empty_pile_forfeits():
     rng = random.Random(0)
     deck = deck_in_draw_order(Species.GOBLIN, Species.ORC)
     m = Match.new(3, rng, AdventurerKind.WARRIOR, start_seat=0, monster_deck=deck)
     m.apply(A.PassBid())
     m.apply(A.PassBid())
-    assert m.phase is MatchPhase.DUNGEON
+    assert m.phase is MatchPhase.ENDED
+    assert m.winner_seat is None
+    assert m.terminal_reason is MatchTerminalReason.EMPTY_DUNGEON_FORFEIT
     assert m.runner_seat == 2
 
 
-def test_bidding_sacrifice_removes_equipment_runner_enters_without_it():
+def test_bidding_sacrifice_removes_equipment_then_empty_pile_forfeits():
     rng = random.Random(0)
     deck = deck_in_draw_order(Species.GOBLIN, Species.ORC)
     m = Match.new(2, rng, AdventurerKind.WARRIOR, start_seat=0, monster_deck=deck)
     m.apply(A.DrawCard())
     m.apply(A.SacrificeEquipment("W_PLATE"))
     m.apply(A.PassBid())
-    assert m.phase is MatchPhase.DUNGEON
-    assert "W_PLATE" not in m.d_in_play
+    assert m.phase is MatchPhase.ENDED
+    assert m.terminal_reason is MatchTerminalReason.EMPTY_DUNGEON_FORFEIT
+    assert "W_PLATE" not in m.center_equipment
 
 
 def test_draw_then_pass_advances_active_seat():
