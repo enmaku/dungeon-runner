@@ -149,7 +149,7 @@ def main() -> None:
     ap.add_argument(
         "--updates",
         type=int,
-        default=5000,
+        default=10000,
         help="Number of PPO update steps (one rollout + optimization each). Use a small value (e.g. 5) for a smoke test.",
     )
     ap.add_argument(
@@ -194,9 +194,12 @@ def main() -> None:
     writer = tf.summary.create_file_writer(str(args.logdir / "scalars"))  # noqa: SIM201
     t0 = time.time()
     ck = args.logdir / "policy.weights.h5"
+    le = max(1, int(args.log_every))
+    se = int(args.save_every)
     for _u in range(args.updates):
         b, roles, game = fill_rollout(env, model, bot, roles, pyr, np_r, args.rollout)
         n = min(len(b.obs), len(b.reward), len(b.act), len(b.value), len(b.logp), len(b.done))
+        loss_for_log: float | None = None
         if n < 3:
             n2, roles, st, h0 = sample_episode(np_r)
             env.reset(
@@ -207,48 +210,49 @@ def main() -> None:
                 tf.summary.scalar("rollout/skipped", 1.0, step=_u)
                 r_sk = np.asarray(b.reward[:n], np.float32)
                 _log_game_scalars(_u, game, float(np.mean(r_sk)) if n else 0.0)
-            continue
-        o = np.stack(b.obs[:n], 0)
-        m = np.stack(b.mask[:n], 0)
-        a_ = np.asarray(b.act[:n], np.int32)
-        v = np.asarray(b.value[:n], np.float32)
-        lp = np.asarray(b.logp[:n], np.float32)
-        r = np.asarray(b.reward[:n], np.float32)
-        d = np.asarray(b.done[:n], bool)
-        mean_r = float(np.mean(r)) if n else 0.0
-        _, lvv = model(tf.convert_to_tensor(o[-1:, :], tf.float32), tf.convert_to_tensor(m[-1:, :], tf.float32))
-        lastv = float(lvv[0, 0].numpy())
-        adv, rets = compute_gae(r, v, d, lastv, cfg.gamma, cfg.gae_lambda)
-        idx = np.arange(n)
-        pyr.shuffle(idx)
-        acc: dict[str, float] = {"loss": 0.0, "pg": 0.0, "vl": 0.0, "en": 0.0}
-        mb_n = 0
-        for _e in range(cfg.n_epochs):
+        else:
+            o = np.stack(b.obs[:n], 0)
+            m = np.stack(b.mask[:n], 0)
+            a_ = np.asarray(b.act[:n], np.int32)
+            v = np.asarray(b.value[:n], np.float32)
+            lp = np.asarray(b.logp[:n], np.float32)
+            r = np.asarray(b.reward[:n], np.float32)
+            d = np.asarray(b.done[:n], bool)
+            mean_r = float(np.mean(r)) if n else 0.0
+            _, lvv = model(tf.convert_to_tensor(o[-1:, :], tf.float32), tf.convert_to_tensor(m[-1:, :], tf.float32))
+            lastv = float(lvv[0, 0].numpy())
+            adv, rets = compute_gae(r, v, d, lastv, cfg.gamma, cfg.gae_lambda)
+            idx = np.arange(n)
             pyr.shuffle(idx)
-            for s0 in range(0, n, cfg.minibatch_size):
-                sl = idx[s0 : s0 + cfg.minibatch_size]
-                if sl.size == 0:
-                    continue
-                lg = ppo_minibatch_update(
-                    model, opt, cfg, o[sl], m[sl], a_[sl], lp[sl], v[sl], adv[sl], rets[sl]
-                )
+            acc: dict[str, float] = {"loss": 0.0, "pg": 0.0, "vl": 0.0, "en": 0.0}
+            mb_n = 0
+            for _e in range(cfg.n_epochs):
+                pyr.shuffle(idx)
+                for s0 in range(0, n, cfg.minibatch_size):
+                    sl = idx[s0 : s0 + cfg.minibatch_size]
+                    if sl.size == 0:
+                        continue
+                    lg = ppo_minibatch_update(
+                        model, opt, cfg, o[sl], m[sl], a_[sl], lp[sl], v[sl], adv[sl], rets[sl]
+                    )
+                    for k in acc:
+                        acc[k] += float(lg[k])
+                    mb_n += 1
+            if mb_n:
                 for k in acc:
-                    acc[k] += float(lg[k])
-                mb_n += 1
-        if mb_n:
-            for k in acc:
-                acc[k] /= mb_n
-        with writer.as_default():
-            tf.summary.scalar("loss/loss", acc["loss"], step=_u)
-            tf.summary.scalar("loss/policy", acc["pg"], step=_u)
-            tf.summary.scalar("loss/value", acc["vl"], step=_u)
-            tf.summary.scalar("loss/entropy", acc["en"], step=_u)
-            tf.summary.scalar("rollout/nn_transitions", float(n), step=_u)
-            _log_game_scalars(_u, game, mean_r)
-        le = max(1, int(args.log_every))
+                    acc[k] /= mb_n
+            with writer.as_default():
+                tf.summary.scalar("loss/loss", acc["loss"], step=_u)
+                tf.summary.scalar("loss/policy", acc["pg"], step=_u)
+                tf.summary.scalar("loss/value", acc["vl"], step=_u)
+                tf.summary.scalar("loss/entropy", acc["en"], step=_u)
+                tf.summary.scalar("rollout/nn_transitions", float(n), step=_u)
+                _log_game_scalars(_u, game, mean_r)
+            loss_for_log = acc["loss"]
         if _u % le == 0 or _u == args.updates - 1:
             ngm = int(game.nn_games)
             nn_wr = float(game.nn_wins) / float(ngm) if ngm else 0.0
+            loss_disp = float("nan") if loss_for_log is None else float(loss_for_log)
             tf.print(
                 "u",
                 _u + 1,
@@ -257,13 +261,12 @@ def main() -> None:
                 "n",
                 n,
                 "loss",
-                acc["loss"],
+                loss_disp,
                 "nn_wr",
                 nn_wr,
                 output_stream=sys.stdout,
             )
-        se = int(args.save_every)
-        if se > 0 and (_u + 1) % se == 0:
+        if n >= 3 and se > 0 and (_u + 1) % se == 0:
             model.save_weights(ck)
             tf.print("checkpoint", str(ck), "step", _u + 1, output_stream=sys.stdout)
     tf.print("elapsed", time.time() - t0, "s", output_stream=sys.stdout)
