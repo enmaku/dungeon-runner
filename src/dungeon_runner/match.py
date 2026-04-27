@@ -108,8 +108,9 @@ class Match:
     _round_pool: list[MonsterInstance] = field(default_factory=list)
     # Human-readable lines for the current dungeon only; cleared when a new dungeon starts
     dungeon_run_log: list[str] = field(default_factory=list)
-    # RL dungeon-success reward: len(dungeon_pile) + bidding SacrificeEquipment count at run start
-    dungeon_run_reward_difficulty: int = 0
+    # RL dungeon-success reward inputs at run start (see rl.rewards)
+    dungeon_run_reward_cards: int = 0
+    dungeon_run_reward_tiles: int = 0
 
     @classmethod
     def new(
@@ -165,7 +166,8 @@ class Match:
             winner_seat=None,
             pick_next_seat=None,
             dungeon_run_log=[],
-            dungeon_run_reward_difficulty=0,
+            dungeon_run_reward_cards=0,
+            dungeon_run_reward_tiles=0,
         )
 
     def _left_neighbor(self, s: int) -> int:
@@ -340,7 +342,8 @@ class Match:
             return
         self.dungeon_run_log.clear()
         self.active_seat = self.runner_seat
-        self.dungeon_run_reward_difficulty = len(self.dungeon_pile) + len(self.sacrifice_rows)
+        self.dungeon_run_reward_cards = len(self.dungeon_pile)
+        self.dungeon_run_reward_tiles = len(self.sacrifice_rows)
         self.d_remaining = list(self.dungeon_pile)
         self.d_in_play = set(self.center_equipment)
         self.d_ad_base = base_hp(self.hero)

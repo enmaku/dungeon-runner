@@ -188,14 +188,21 @@ class WtdAECEnv(
             if rnr0 is not None and phase_b is MatchPhase.DUNGEON and m.players[rnr0].success_cards > p_succ0:
                 rk = str(rnr0)
                 if rk in self.rewards:
-                    ds = R.dungeon_success_reward(m.dungeon_run_reward_difficulty)
+                    ds = R.dungeon_success_reward(m.dungeon_run_reward_cards, m.dungeon_run_reward_tiles)
                     self.rewards[rk] = (self.rewards.get(rk) or 0.0) + ds
         elif rnr0 is not None and phase_b is MatchPhase.DUNGEON and m.phase is not MatchPhase.DUNGEON:
             pr = m.players[rnr0]
             if pr.success_cards > p_succ0:
-                self.rewards[str(rnr0)] = R.dungeon_success_reward(m.dungeon_run_reward_difficulty)
+                self.rewards[str(rnr0)] = R.dungeon_success_reward(
+                    m.dungeon_run_reward_cards, m.dungeon_run_reward_tiles
+                )
             elif pr.aid_flips > p_aid0 or pr.eliminated:
                 self.rewards[str(rnr0)] = R.REWARD_DUNGEON_FAIL
+        if phase_b is MatchPhase.BIDDING and actor in self.agents:
+            if isinstance(adec, A.SacrificeEquipment):
+                self.rewards[actor] = (self.rewards.get(actor) or 0.0) + R.REWARD_BIDDING_TILE_DISCARD
+            elif isinstance(adec, A.PassBid):
+                self.rewards[actor] = (self.rewards.get(actor) or 0.0) + R.REWARD_BIDDING_PASS
         if m.phase is not MatchPhase.ENDED and actor in self.agents:
             self.rewards[actor] = (self.rewards.get(actor) or 0.0) + R.REWARD_PER_ACTION
         self._accumulate_rewards()
