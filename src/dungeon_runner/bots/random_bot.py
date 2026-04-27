@@ -9,7 +9,6 @@ import dungeon_runner.actions as A
 from dungeon_runner.catalog import SPECIES_DATA
 from dungeon_runner.match import BiddingState, Match, MatchPhase
 
-_MIN_DUNGEON_CARDS_BEFORE_PASS = 3
 _PASS_WEIGHT_GROWTH_PER_DUNGEON_CARD = 0.14
 _SACRIFICE_WEIGHT_DECAY_PER_EQUIP_REMOVED = 0.58
 _SACRIFICE_STRENGTH_MIN = 0.2
@@ -43,17 +42,9 @@ def _sacrifice_pending_strength_factor(m: Match) -> float:
     return _strength_driven_weight(c.strength)
 
 
-def random_sim_action_subset(m: Match, legal: set[object]) -> set[object]:
-    """Narrow the action set for nicer toy runs. Does not change real legality."""
-    out = set(legal)
-    if (
-        m.phase is MatchPhase.BIDDING
-        and m.bidding_sub is BiddingState.TURN
-        and m.monster_deck
-        and len(m.dungeon_pile) < _MIN_DUNGEON_CARDS_BEFORE_PASS
-    ):
-        out.discard(A.PassBid())
-    return out
+def random_sim_action_subset(_m: Match, legal: set[object]) -> set[object]:
+    """Reserved for narrowing the toy action set; currently returns ``legal`` unchanged."""
+    return set(legal)
 
 
 def _action_weight(
