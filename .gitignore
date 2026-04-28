@@ -68,6 +68,8 @@ saved_models/
 **/saved_model/
 *.ckpt*
 *.h5
+!models/*.h5
+!models/**/*.h5
 *.keras
 *.pb
 *.tflite
