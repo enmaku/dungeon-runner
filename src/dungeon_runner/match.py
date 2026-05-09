@@ -423,7 +423,7 @@ class Match:
                     raise IllegalAction("poly", act)
                 self.d_poly_spent = True
                 self.d_in_play.discard(EQUIP_POLY)
-                nxt = self.d_remaining.pop(0)
+                nxt = self.d_remaining.pop()
                 self._dlog(
                     f"  Runner uses Polymorph — {m.species.value} discarded facedown; "
                     f"next reveal: {nxt.species.value} (strength {nxt.strength})."
@@ -453,7 +453,7 @@ class Match:
                     self._dlog("Pile empty — dungeon cleared with no further reveals.")
                     self._dungeon_success()
                 return
-            self.d_current = self.d_remaining.pop(0)
+            self.d_current = self.d_remaining.pop()
         self._process_auto_chain()
 
     def _process_auto_chain(self) -> None:
@@ -511,7 +511,7 @@ class Match:
             return None
         if not self.d_remaining:
             return [m]
-        n2 = self.d_remaining.pop(0)
+        n2 = self.d_remaining.pop()
         return [m, n2]
 
     def _vorpal_kills(self, m: MonsterInstance) -> bool:
