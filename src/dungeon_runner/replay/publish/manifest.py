@@ -25,7 +25,11 @@ def list_promoted_versions(models_dir: Path, ledger_path: Path) -> tuple[str, ..
     versions: set[str] = set()
     if models_dir.is_dir():
         for child in models_dir.iterdir():
-            if child.is_dir() and child.name.startswith("v"):
+            if (
+                child.is_dir()
+                and child.name.startswith("v")
+                and not child.name.endswith(".tmp")
+            ):
                 versions.add(child.name)
     if ledger_path.is_file():
         for line in ledger_path.read_text(encoding="utf-8").splitlines():

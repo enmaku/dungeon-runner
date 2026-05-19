@@ -110,6 +110,7 @@ def run_ppo(
             teacher,
             train_rows,
             tb_dir=tb_dir,
+            teacher_weights=prereq.bc_weights,
             bc_anchor_lambda=bc_anchor_lambda,
             bc_anchor_beta=bc_anchor_beta,
             use_ray=use_ray,

@@ -20,9 +20,7 @@ python -m dungeon_runner.replay.cli <stage> [stage flags…]
 | `bc` | **implemented** | **BC policy training** → **training run artifact** under `models/runs/` |
 | `ppo` | **implemented** | **BC-anchored PPO policy training** (requires `--bc-run`) |
 | `publish` | implemented | **Gated promotion** to `models/<promoted version>/` + **production latest** symlink |
-| `run-all` | stub | **Manual pipeline run** — orchestrate stages in order (see [Run-all](#run-all)) |
-
-Unimplemented stages exit code **`2`** with a short stderr message; no fake work.
+| `run-all` | **implemented** | **Manual pipeline run** — orchestrate stages in order (see [Run-all](#run-all)) |
 
 Shared flag (all stages that touch replay data):
 
@@ -325,13 +323,17 @@ python -m dungeon_runner.replay.cli ppo --bc-run models/runs/bc-… \
 | `--run-id` | `ppo-<UTC compact>` | **Training run id** |
 | `--bc-anchor-lambda` | `0.1` | **BC anchor CE** strength (`0` skips derived-store prerequisites) |
 | `--bc-anchor-beta` | `0` | **BC anchor KL** strength |
-| `--ray-workers` | `8` | Parallel **PPO rollout collection** (Ray path delegates to local in v1 pass 1) |
-| `--no-ray` | Ray on | Single-process rollouts (debug / macOS) |
+| `--ray-workers` | `8` | Parallel **PPO rollout collection** (Ray actor pool; values `<1` clamp to one worker) |
+| `--no-ray` | Ray on | Single-process rollouts (debug / macOS / when Ray fails to start) |
 | `--no-gate-preview` | preview on | Skip preview vs `latest` |
 
 Exit **`1`** on prerequisite/training failure (no committed run dir) or **PPO BC regression check** fail (artifact still committed). Requires `pip install -e ".[train]"` (TensorFlow).
 
+Tracked in [dungeon-runner #7](https://github.com/enmaku/dungeon-runner/issues/7).
+
 - **Rollout match templates:** 20% learner vs **RandomBot**, 45% vs **BC-bot** (**frozen BC teacher**), 35% self-play.
+- **Ray rollout pool:** one persistent actor per worker for the run; `train_ppo` always calls `shutdown()` in a `finally` block. Ray init or worker startup failures surface as `RayRolloutError` with a `--no-ray` hint; use `--no-ray` when Ray is missing or unstable on the host.
+- **Legacy maintainer scripts (not replay CLI):** `scripts/train.py` remains the original **RandomBot-only** in-process PPO loop (`logdir/`, no eval artifacts). `scripts/train_rllib.py` reuses the same Ray local-cluster helpers as replay PPO (`dungeon_runner.rl.ray_local`) but still targets RandomBot self-play, not **rollout match templates**. Replay PPO rollout collection lives under `dungeon_runner.replay.ppo` (`template_sampler`, `rollout_collector`, `ray_workers`); do not change `train.py` behavior when extending the pipeline.
 - Post-train: same `replay_metrics` + `sim_metrics` + `write_metrics` path as `bc` (vs `latest` for preview gates).
 - Records `ppo_bc_regression.pass` in **metrics artifact**; `publish` on `ppo-*` requires `true`.
 
@@ -366,7 +368,7 @@ python -m dungeon_runner.replay.cli run-all [--data-dir data/replays] \
   [--with-ppo] [--with-publish]
 ```
 
-**Not implemented** (exit `2` today — same stub behavior as other unimplemented stages). When shipped, the orchestrator invokes the same stage CLIs below in order, passing `--data-dir` through, and **fails fast**: the first child stage with a non-zero exit code aborts `run-all` without running later steps (no partial train/publish after a failed verify).
+The orchestrator runs the same stage entry points as the individual CLIs below in order, passing `--data-dir` through, and **fails fast**: the first stage with a non-zero exit code aborts `run-all` without running later steps (no partial train/publish after a failed verify).
 
 | Step | Stage | Env / prereqs | Notes |
 |------|--------|---------------|--------|
@@ -387,9 +389,7 @@ python -m dungeon_runner.replay.cli run-all [--data-dir data/replays] \
 
 **Default `run-all` stops after `bc`.** PPO and promotion are opt-in so maintainers can review **metrics artifact** / preview before promoting.
 
-**Today:** run steps 1–4 manually (`ingest` → `verify` → `eval_suite init` → `eval_config init`) before stub stages ship; `dataset` / `bc` / `ppo` / `publish` / `run-all` each exit `2` until their issues land.
-
-Future: passthrough for `ingest --from-export` and `eval_config init --overwrite` on `run-all` may be added when the orchestrator ships (not in v1 CLI yet).
+Future: passthrough for `ingest --from-export` and `eval_config init --overwrite` on `run-all` (not in v1 CLI yet).
 
 ---
 

@@ -23,15 +23,14 @@ from dungeon_runner.replay.ppo import (
 from dungeon_runner.replay.publish import PublishError, run_publish
 from dungeon_runner.replay.dataset import DatasetBuildError, run_dataset
 from dungeon_runner.replay.ingest import run_ingest
+from dungeon_runner.replay.run_all import run_all
 from dungeon_runner.replay.verify import run_verify
 
 DEFAULT_DATA_DIR = Path("data/replays")
 
-_NOT_IMPLEMENTED_STAGES = ("run-all",)
+_NOT_IMPLEMENTED_STAGES: tuple[str, ...] = ()
 
-_STAGE_STUB_NOTES: dict[str, str] = {
-    "run-all": "orchestrates ingest → verify → eval_* → dataset → bc [→ ppo] [→ publish]",
-}
+_STAGE_STUB_NOTES: dict[str, str] = {}
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
@@ -174,6 +173,14 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     if not summary.verified and not summary.failed:
         print("no pending verify matches")
     return 0
+
+
+def _cmd_run_all(args: argparse.Namespace) -> int:
+    return run_all(
+        data_dir=Path(args.data_dir),
+        with_ppo=args.with_ppo,
+        with_publish=args.with_publish,
+    )
 
 
 def _cmd_ppo(args: argparse.Namespace) -> int:
@@ -389,6 +396,27 @@ def main(argv: list[str] | None = None) -> int:
         help="Manual promoted version (e.g. v0.3); default auto-bump",
     )
     publish.set_defaults(handler=_cmd_publish)
+
+    run_all_parser = sub.add_parser(
+        "run-all",
+        help="Orchestrate ingest → verify → eval_* → dataset → bc [→ ppo] [→ publish]",
+    )
+    run_all_parser.add_argument(
+        "--data-dir",
+        default=str(DEFAULT_DATA_DIR),
+        help=f"Training data root (default: {DEFAULT_DATA_DIR})",
+    )
+    run_all_parser.add_argument(
+        "--with-ppo",
+        action="store_true",
+        help="Chain BC-anchored PPO after bc",
+    )
+    run_all_parser.add_argument(
+        "--with-publish",
+        action="store_true",
+        help="Chain gated promotion on last train artifact",
+    )
+    run_all_parser.set_defaults(handler=_cmd_run_all)
 
     for stage in _NOT_IMPLEMENTED_STAGES:
         stub_help = _STAGE_STUB_NOTES.get(stage, "future pipeline stage")

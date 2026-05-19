@@ -135,11 +135,26 @@ def test_dataset_documents_parquet_schema(md: str) -> None:
         assert field in dataset
 
 
+def test_ppo_section_links_issue_7(md: str) -> None:
+    ppo = md.split("## BC-anchored PPO", 1)[1].split("\n## ", 1)[0]
+    assert "github.com/enmaku/dungeon-runner/issues/7" in ppo
+
+
+def test_ppo_documents_ray_and_legacy_scripts(md: str) -> None:
+    ppo = md.split("## BC-anchored PPO", 1)[1].split("\n## ", 1)[0]
+    assert "Ray rollout pool" in ppo
+    assert "scripts/train.py" in ppo
+    assert "scripts/train_rllib.py" in ppo
+    assert "rollout_collector" in ppo
+    assert "ray_workers" in ppo
+    assert "--no-ray" in ppo
+
+
 def test_documents_run_all_orchestration_detail(md: str) -> None:
     section = md.split("## Run-all", 1)[1].split("\n## ", 1)[0]
     assert "fail" in section.lower()
-    assert "exit `2`" in section
     assert "FIREBASE_DATABASE_URL" in section
     assert "PORTFOLIO_SITE_ROOT" in section
     assert "eval_config init" in section
     assert "overwrite" in section.lower()
+    assert "exit `2`" not in section

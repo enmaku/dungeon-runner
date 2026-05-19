@@ -16,6 +16,7 @@ from dungeon_runner.replay.ppo.bc_anchor import anchor_ce_loss, anchor_kl_loss
 from dungeon_runner.replay.ppo.frozen_teacher import FrozenBCTeacher
 from dungeon_runner.replay.ppo.ray_collect import collect_rollouts
 from dungeon_runner.replay.ppo.rollout_collector import collect_rollouts_local
+from dungeon_runner.replay.ppo.ray_workers import RayRolloutPool
 from dungeon_runner.replay.ppo.template_sampler import TEMPLATE_BC_BOT
 from dungeon_runner.rl.model import PolicyValueModel
 from dungeon_runner.rl.ppo import PPOConfig, compute_gae, ppo_minibatch_update
@@ -147,6 +148,7 @@ def train_ppo(
     train_rows: list[ParquetDerivedRow],
     *,
     tb_dir: Path,
+    teacher_weights: Path | None = None,
     bc_anchor_lambda: float = 0.1,
     bc_anchor_beta: float = 0.0,
     use_ray: bool = True,
@@ -168,40 +170,55 @@ def train_ppo(
         )
         return batch, stats, template
 
+    ray_pool: RayRolloutPool | None = None
+    if use_ray:
+        if teacher_weights is None:
+            raise ValueError("teacher_weights is required when use_ray=True")
+        ray_pool = RayRolloutPool(
+            teacher_weights=teacher_weights,
+            n_workers=ray_workers,
+            seed=PPO_SEED,
+        )
+
     def ray_collect(workers: int):
         del workers
-        return local_collect()
+        assert ray_pool is not None
+        return ray_pool.collect(model, target_steps=rollout_steps, update_step=step)
 
-    for step in range(max_updates):
-        batch, stats, template = collect_rollouts(
-            use_ray=use_ray,
-            ray_workers=ray_workers,
-            local_fn=local_collect,
-            ray_fn=ray_collect,
-        )
-        loss = _ppo_update_from_batch(model, opt, cfg, batch, pyr)
-        if loss > 0:
-            ppo_losses.append(loss)
-        ce, kl = _apply_anchor_step(
-            model,
-            train_rows,
-            lam=bc_anchor_lambda,
-            teacher=teacher_model if bc_anchor_beta > 0 else None,
-            beta=bc_anchor_beta,
-            opt=opt,
-        )
-        if bc_anchor_lambda > 0:
-            anchor_ce_vals.append(ce)
-        if bc_anchor_beta > 0 and kl is not None:
-            anchor_kl_vals.append(kl)
-        _log_template_scalar(tb_dir, template or TEMPLATE_BC_BOT, stats, step)
-        writer = tf.summary.create_file_writer(str(tb_dir))
-        with writer.as_default():
-            tf.summary.scalar("train/ppo_loss", loss, step=step)
+    try:
+        for step in range(max_updates):
+            batch, stats, template = collect_rollouts(
+                use_ray=use_ray,
+                ray_workers=ray_workers,
+                local_fn=local_collect,
+                ray_fn=ray_collect,
+            )
+            loss = _ppo_update_from_batch(model, opt, cfg, batch, pyr)
+            if loss > 0:
+                ppo_losses.append(loss)
+            ce, kl = _apply_anchor_step(
+                model,
+                train_rows,
+                lam=bc_anchor_lambda,
+                teacher=teacher_model if bc_anchor_beta > 0 else None,
+                beta=bc_anchor_beta,
+                opt=opt,
+            )
             if bc_anchor_lambda > 0:
-                tf.summary.scalar("train/bc_anchor_ce", ce, step=step)
+                anchor_ce_vals.append(ce)
             if bc_anchor_beta > 0 and kl is not None:
-                tf.summary.scalar("train/bc_anchor_kl", kl, step=step)
+                anchor_kl_vals.append(kl)
+            _log_template_scalar(tb_dir, template or TEMPLATE_BC_BOT, stats, step)
+            writer = tf.summary.create_file_writer(str(tb_dir))
+            with writer.as_default():
+                tf.summary.scalar("train/ppo_loss", loss, step=step)
+                if bc_anchor_lambda > 0:
+                    tf.summary.scalar("train/bc_anchor_ce", ce, step=step)
+                if bc_anchor_beta > 0 and kl is not None:
+                    tf.summary.scalar("train/bc_anchor_kl", kl, step=step)
+    finally:
+        if ray_pool is not None:
+            ray_pool.shutdown()
 
     return PPOTrainResult(
         ppo_loss=float(np.mean(ppo_losses)) if ppo_losses else 0.0,

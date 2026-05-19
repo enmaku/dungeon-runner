@@ -7,10 +7,12 @@ from pathlib import Path
 
 import pytest
 
+from dungeon_runner.replay.bc.stage import run_bc
+from dungeon_runner.replay.bc.trainer import train_bc
 from dungeon_runner.replay.eval.metrics_writer import load_metrics
 from dungeon_runner.replay.ppo.prerequisites import PPOPrerequisiteError
 from dungeon_runner.replay.ppo.stage import PPOStageError, run_ppo
-from tests.replay.bc.bc_fixtures import smoke_load_model, stub_sim_metrics
+from tests.replay.bc.bc_fixtures import smoke_load_model, stub_sim_metrics, write_bc_fixture_tree
 from tests.replay.ppo.ppo_fixtures import write_ppo_fixture_tree
 
 
@@ -23,6 +25,41 @@ class _StubTrainResult:
 
 def _stub_train(*_a, **_k):
     return _StubTrainResult()
+
+
+def _fast_bc_train(*args, **kwargs):
+    kwargs.setdefault("max_epochs", 8)
+    kwargs.setdefault("patience", 3)
+    kwargs.setdefault("batch_size", 4)
+    return train_bc(*args, **kwargs)
+
+
+def test_run_ppo_gate_preview_when_floor_set(tmp_path: Path):
+    repo = tmp_path / "repo"
+    data = tmp_path / "data"
+    write_bc_fixture_tree(data, repo)
+    bc_run = write_ppo_fixture_tree(data, repo)
+    run_bc(
+        data_dir=data,
+        repo_root=repo,
+        run_id="bc-gate-setup",
+        gate_preview=False,
+        train_bc_fn=_fast_bc_train,
+        load_model_fn=smoke_load_model,
+        sim_metrics_fn=stub_sim_metrics,
+    )
+
+    summary = run_ppo(
+        data_dir=data,
+        bc_run=bc_run,
+        repo_root=repo,
+        run_id="ppo-gate",
+        train_ppo_fn=_stub_train,
+        load_model_fn=smoke_load_model,
+        sim_metrics_fn=stub_sim_metrics,
+    )
+    assert summary.gate_preview_passed is True
+    assert summary.gate_preview_reasons == []
 
 
 def test_run_ppo_writes_run_artifact_and_metrics(tmp_path: Path):

@@ -7,10 +7,15 @@ from typing import Any
 
 from dungeon_runner.replay.eval.metrics_writer import write_metrics
 from tests.replay.bc.bc_fixtures import (
+    PRODUCTION_PARENT_WEIGHTS,
     write_bc_derived_fixture,
+    write_bc_derived_fixture_production,
     write_bc_eval_artifacts,
+    write_bc_fixture_tree_production,
     write_smoke_parent_weights,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def write_bc_run_artifact(
@@ -68,3 +73,34 @@ def write_ppo_fixture_tree(
         replay_acc=replay_acc,
         sim_wr=sim_wr,
     )
+
+
+def write_ppo_fixture_tree_production(
+    data_dir: Path,
+    repo_root: Path,
+    *,
+    bc_run_id: str = "bc-parent",
+) -> Path:
+    write_bc_fixture_tree_production(data_dir, repo_root)
+    run_dir = repo_root / "models" / "runs" / bc_run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    weights = run_dir / "policy.weights.h5"
+    weights.write_bytes(PRODUCTION_PARENT_WEIGHTS.read_bytes())
+    write_metrics(
+        run_dir,
+        run_id=bc_run_id,
+        parent_weights=str(weights.resolve()),
+        replay={
+            "val_masked_accuracy": 0.75,
+            "disagreement_rate": 0.0,
+            "val_row_count": 4,
+        },
+        sim={
+            "candidate_win_rate_vs_randombot": 0.50,
+            "latest_win_rate_vs_randombot": 0.50,
+            "engine": "python_training_sim",
+            "seed_count": 2,
+        },
+        train={"bc_loss": 0.5},
+    )
+    return run_dir
