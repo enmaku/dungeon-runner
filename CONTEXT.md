@@ -33,28 +33,56 @@ A history entry whose `action` has no `modelId` (human is not listed in setup; s
 _Avoid_: Assuming `seat-1`, or requiring `humanSeatIds` in v1
 
 **Gated promotion**:
-Copying candidate weights from **training run artifact** to `models/<version>/` only after **promotion gates** pass, so production `latest` does not regress.
-_Avoid_: "deploy", "release" (those include portfolio-site TF.js sync); semver paths for failed runs
+Copying candidate weights from **training run artifact** to `models/<promoted version>/` only after **promotion gates** pass, then repointing **production latest** at that directory.
+_Avoid_: "deploy", "release" (those include portfolio-site TF.js sync); semver paths for failed runs; copying weights into a non-symlink `models/latest/` tree
+
+**Promoted version**:
+Semver directory name under `models/` assigned on successful **gated promotion**. Legacy alpha dirs (`v0.1.29a`, `v0.1.30a`) used epoch numbers under the `v0.1` line with an `a` suffix; the replay-pipeline line starts at `v0.2` (first post-alpha promote), then auto-increments patch as two digits: `v0.2.01`, `v0.2.02`, … Minor line bumps (e.g. `v0.3`) are maintainer-only via `publish --version`. No letter suffixes on new promotes. Distinct from **training run id** under `models/runs/`.
+_Avoid_: Using `bc-*` / `ppo-*` run ids as promoted dir names; continuing the `v0.1.*a` pattern for new promotes; unpadded patch segments like `v0.2.1` on the new line; allocator auto-advancing minor without an explicit flag
+
+**Production latest**:
+Symlink `models/latest/` → `../<promoted version>/`; holds `policy.weights.h5` via the target dir. Updated only by **gated promotion** (#8), never by `bc`/`ppo` or failed publish. Issue #8 includes a one-time migration replacing the legacy duplicate `latest/` directory with a symlink to `v0.1.30a` until the first `v0.2` **gated promotion** repoints it.
+_Avoid_: A real directory that duplicates weights; manual copy into `latest` without publish; treating `latest` as a version string
+
+**Promotion manifest**:
+Audit record written only on successful **gated promotion**: per **promoted version** dir (`promotion.json` with version, `parent_weights`, timestamp, **training run id**, pointer to metrics snapshot) plus one append-only line in repo-level `models/promotions.jsonl`. A full copy of the run **metrics artifact** lives in the promoted dir alongside weights.
+_Avoid_: Manifest on failed publish; manifest only in the run dir under `models/runs/`; overwriting prior JSONL lines
+
+**Publish gate evaluation**:
+Stage `publish` applies **promotion gates** by reading the committed run **metrics artifact** and **eval config artifact** only—no second **replay eval metrics** or **sim eval metrics** pass. Same gate rules as **gate evaluator preview**, but may copy weights and write **promotion manifest** on pass. For `ppo-*` artifacts, also requires `ppo_bc_regression.pass: true` from stage `ppo`.
+_Avoid_: Re-running eval at publish time; promoting from `.tmp` staging dirs; treating preview output as promotion; skipping **PPO BC regression check** at publish
+
+**Publish CLI**:
+**Replay pipeline CLI** stage `publish` (`python -m dungeon_runner.replay.cli publish`) with required `--run` (committed **training run artifact** dir, not `*.tmp`) and `--data-dir` (default **training data root**) to load **eval config artifact** for **publish gate evaluation**; exit 0 only when **gated promotion** completes. Each **training run id** may promote at most once (reject if `run_id` already in `models/promotions.jsonl`).
+_Avoid_: Run-id-only resolution without an explicit path in v1; implicit promote from `bc`/`ppo`; second promote of the same run artifact; hard-coded eval config path ignoring `--data-dir`
+
+**Publish run atomicity**:
+A single `publish` stages `models/<promoted version>.tmp/` (weights, metrics copy, `promotion.json`), renames to final semver dir, then atomically repoints **production latest** and appends `models/promotions.jsonl`. Failure before the final steps leaves `latest` and the JSONL ledger unchanged.
+_Avoid_: Appending JSONL before weights exist; repointing `latest` at a partial version dir; leaving a committed semver dir without a matching ledger line
 
 **Training run artifact**:
-Directory `models/runs/<run_id>/` with candidate `policy.weights.h5` and **metrics artifact** written atomically per BC/PPO run; **gated promotion** (#8) reads this bundle and copies to `models/<version>/` only on pass.
-_Avoid_: Failed candidates under `models/<version>/`; metrics only under **training data root**
+Directory `models/runs/<run_id>/` with candidate `policy.weights.h5`, **metrics artifact**, and TensorBoard logs under `tb/` written atomically per BC/PPO run; **gated promotion** (#8) reads this bundle and copies to `models/<version>/` only on pass. v1 write: stage under `models/runs/<run_id>.tmp/` (TensorBoard `tb/`, weights, then `metrics.json` last), then rename to `models/runs/<run_id>/`; failed runs must not leave a committed final directory.
+_Avoid_: Failed candidates under `models/<version>/`; metrics only under **training data root**; partial dirs with weights but no **metrics artifact**; TensorBoard only outside the staged run dir
+
+**Training run id**:
+Directory name under `models/runs/` and `run_id` field in **metrics artifact**. Default auto-generated as stage prefix + UTC compact time (`YYYYMMDDTHHMMSSZ`): `bc-…` for **BC policy training**, `ppo-…` for **BC-anchored PPO policy training** (e.g. `ppo-20260518T150000Z`); optional CLI `--run-id` override for tests and reruns.
+_Avoid_: UUID-only ids with no time signal; requiring `--run-id` on every maintainer run; embedding parent BC id in the default `ppo-` name (use **metrics artifact** `parent_weights` / init path for lineage)
 
 **Metrics artifact**:
-`metrics.json` inside **training run artifact**: `run_id`, timestamp, `parent_weights`, **replay eval metrics**, **sim eval metrics**, training losses, and inputs for **promotion gates**.
-_Avoid_: Metrics only on promoted versions; omitting `parent_weights`
+`metrics.json` inside **training run artifact**: `run_id`, timestamp, `parent_weights`, **replay eval metrics**, **sim eval metrics**, training losses, and inputs for **promotion gates**. `train.bc_loss` is masked CE on all train-split **human step** rows evaluated on **BC best checkpoint** weights (post-restore), not last-epoch or loop-only estimates. **BC-anchored PPO policy training** adds `train.ppo_loss`, `train.bc_anchor_ce`, and `train.bc_anchor_kl` (when `β > 0`) on final saved weights, mirroring TensorBoard scalars. `parent_weights` is the absolute resolved path to weights at run start (**training parent** for `bc`; **PPO BC run** checkpoint for `ppo`).
+_Avoid_: Metrics only on promoted versions; omitting `parent_weights`; `train.bc_loss` from final epoch or uncoupled from saved weights; repo-relative-only `parent_weights` when cwd varies; PPO training losses only in TensorBoard
 
 **Promotion gates**:
 Non-negotiable checks before **gated promotion**: **replay eval metrics** at or above **replay accuracy floor**, plus **sim eval metrics** non-regression vs `latest` on the frozen seed list in **eval config artifact** until PPO moves off **Python training sim**.
 _Avoid_: "eval passed" without naming both bars; treating Python sim as co-equal with web rules truth; a second Node replay at eval time
 
 **Replay eval metrics**:
-Masked action accuracy on val-split **human step** **derived training rows**: candidate and `latest` forward on stored `obs`/`mask`, compared to stored **policy action index**; labels are **web-authoritative labels** from dataset build—no second Node replay at metrics time. **Disagreement rate** (report only) is the fraction of those rows where masked argmax(candidate) ≠ masked argmax(`latest`) on the same `obs`/`mask`.
-_Avoid_: Re-stepping val envelopes through Node for promotion; using "replay" to mean live engine re-run at eval time; treating disagreement as label error rate
+Masked action accuracy on val-split **human step** **derived training rows**: candidate and `latest` forward on stored `obs`/`mask`, compared to stored **policy action index**; labels are **web-authoritative labels** from dataset build—no second Node replay at metrics time. **Disagreement rate** (report only) is the fraction of those rows where masked argmax(candidate) ≠ masked argmax(`latest`) on the same `obs`/`mask`. During **BC policy training**, per-epoch val scoring uses the same masked-accuracy rule as `replay.val_masked_accuracy` (candidate vs label only); the post-train **replay metrics** pass on **BC best checkpoint** is authoritative for **metrics artifact** and **replay accuracy floor**.
+_Avoid_: Re-stepping val envelopes through Node for promotion; using "replay" to mean live engine re-run at eval time; treating disagreement as label error rate; a different metric for early-stop vs floor
 
 **Training parent**:
-BC and PPO both start from `models/latest/policy.weights.h5`; each run still records that resolved path as `parent_weights` for audit, even though v1 does not expose alternate parents.
-_Avoid_: "checkpoint" without saying latest vs semver
+BC and PPO both start from `models/latest/policy.weights.h5`; each run still records that resolved path as `parent_weights` for audit, even though v1 does not expose alternate parents. v1: **training data root** (`--data-dir`) is only for replays/derived/eval artifacts; weight I/O stays under repo-root `models/` (no `--models-dir` flag).
+_Avoid_: "checkpoint" without saying latest vs semver; parent or run weights under **training data root**
 
 **Frozen eval suite**:
 Fixed held-out match ids (~20% of ingested matches, chosen once) for **replay eval metrics** on **derived training rows**, plus a fixed seed list for **legacy Python sim benchmarks** vs `latest` and RandomBot. No separate disagreement slice or self-play matrix in v1.
@@ -65,8 +93,8 @@ Frozen file at `data/replays/eval_suite.json` (alongside ingest manifest), produ
 _Avoid_: Re-deriving the val split each time the dataset is built
 
 **Eval config artifact**:
-File at `data/replays/eval_config.json` under **training data root**: **replay accuracy floor**, fixed **legacy Python sim benchmarks** seed list, and **sim regression tolerance** (default `0.01` at **eval config init**). Separate from **eval suite artifact** so holdout re-init does not overwrite thresholds.
-_Avoid_: Storing the floor or sim seeds only inside **eval suite artifact** or per-run `metrics.json`
+File at `data/replays/eval_config.json` under **training data root**: **replay accuracy floor**, fixed **legacy Python sim benchmarks** seed list, and **sim regression tolerance** (default `0.01` at **eval config init**). Separate from **eval suite artifact** so holdout re-init does not overwrite thresholds. **Floor recorder** updates use atomic replace (`eval_config.json.tmp` then rename).
+_Avoid_: Storing the floor or sim seeds only inside **eval suite artifact** or per-run `metrics.json`; in-place partial writes of **eval config artifact**
 
 **Sim regression tolerance**:
 ε in **eval config artifact** for the sim leg of **promotion gates**: candidate win rate may be up to ε below `latest` on the frozen seed list (default `0.01`).
@@ -79,6 +107,14 @@ _Avoid_: Paired per-seed sign tests in v1; strict `>` with zero tolerance on sma
 **Replay accuracy floor**:
 Minimum val **replay eval metrics** masked accuracy for **promotion gates**; set once to the first BC baseline run’s `replay.val_masked_accuracy` exactly (stored in **eval config artifact**), not overwritten by later runs unless a maintainer resets it.
 _Avoid_: A fixed threshold before any baseline exists; a margin below baseline accuracy; recomputing the floor every train run
+
+**BC policy training**:
+Fine-tuning **training parent** weights with masked softmax on **policy action index** on train-split **human step** rows only; shared trunk and policy head receive gradients; value head frozen with no loss in v1. Early-stops on patience against val-split **human step** masked accuracy; **BC best checkpoint** is restored before **training run artifact** write. Stage `bc` then runs **replay eval metrics**, **sim eval metrics**, atomic **training run artifact** write, **floor recorder** when floor was null, and **gate evaluator preview** by default (`--no-gate-preview` to skip); **gated promotion** copy stays in #8. v1 uses fixed hyperparameters in code (no BC CLI tuning flags). Train rows are globally shuffled with a fixed seed in code before batching. **BC start prerequisites** fail fast: **derived store** with ≥1 train and ≥1 val **human step** row, **eval suite artifact** + **eval config artifact**, **training parent** weights, and on-disk val match ids ⊆ suite `val_match_ids`. Every run writes TensorBoard scalars under `tb/` inside the staged run dir (`models/runs/<run_id>.tmp/tb/` during training, `models/runs/<run_id>/tb/` after commit) for live monitoring (per-epoch `train/bc_loss`, `val/masked_accuracy`; optional `lr` if scheduled).
+_Avoid_: PPO-style value targets on human rows; training the value head with zero or dummy targets; saving last-epoch weights after early stopping; promoting from `bc`; skipping floor recorder on baseline runs; per-run LR/epoch flags in v1; starting BC with empty val or missing eval artifacts; BC without per-run TensorBoard logs; PPO rollout tags on BC runs
+
+**BC best checkpoint**:
+Candidate weights at the training epoch with highest val-split **human step** masked accuracy before early stopping; **training run artifact** and post-train **replay eval metrics** / **sim eval metrics** use this checkpoint, not the final epoch.
+_Avoid_: Gating or **replay accuracy floor** from last-epoch or non-restored weights
 
 **BC baseline run**:
 First BC training run that persists **replay accuracy floor** from its **metrics artifact** when the floor was previously null; that run may **gated promote** if all **promotion gates** pass after the floor is written.
@@ -107,6 +143,10 @@ _Avoid_: Auto-generating config on first train; storing sim seeds only in per-ru
 **Gated promotion path**:
 A model may promote after BC alone if **promotion gates** pass; PPO is optional per run, not a prerequisite for promotion in v1.
 _Avoid_: Implying every promoted artifact went through PPO
+
+**Gate evaluator preview**:
+Pass/fail **promotion gates** printed after stage `bc` (metrics + **floor recorder**); does not copy weights to `models/<version>/`. Full **gated promotion** is a separate #8 stage.
+_Avoid_: Treating preview as promote; running preview before **replay accuracy floor** is written on **BC baseline run**
 
 **Web game engine**:
 The portfolio-site JavaScript kernel (`engine/kernel.js`), invoked via Node for replay verify, dataset labels, and any step that must match live play. Single authoritative rules runtime for this pipeline; no Python parity target.
@@ -157,12 +197,64 @@ portfolio-site `engine/fixtures/golden-seed-4242-two-pass.json` (or successor); 
 _Avoid_: Treating snippet fixtures as the only regression gate
 
 **Manual pipeline run**:
-A maintainer-run script (or script chain) that performs ingest → verify → dataset → train → gate; scheduling/cron is out of scope, not live data access. Implemented as staged CLIs plus a thin `run-all` orchestrator that calls them in order.
-_Avoid_: "manual ingest" meaning export files only; a monolith with no stage boundaries
+A maintainer-run script (or script chain) that performs ingest → verify → dataset → train → gate; scheduling/cron is out of scope, not live data access. Implemented as staged CLIs plus a thin `run-all` orchestrator that calls them in order. Default **run-all** ends after **BC policy training**; `--with-ppo` chains **BC-anchored PPO policy training** with `--bc-run` set to that `bc-*` artifact; `--with-publish` chains **Publish CLI** on the artifact just written (`ppo-*` when both flags are set, else `bc-*`).
+_Avoid_: "manual ingest" meaning export files only; a monolith with no stage boundaries; **run-all** always implying PPO or **gated promotion**; auto-publish without an explicit flag
 
 **Replay pipeline CLI**:
-Shared package entry point with subcommands (`ingest`, later `verify`, `dataset`, …) invoked as `python -m dungeon_runner.replay.cli <stage>`; **run-all** orchestrator calls the same stages in order.
-_Avoid_: A separate top-level script per pipeline stage with no shared module
+Shared package entry point with subcommands (`ingest`, `verify`, `dataset`, `bc`, `ppo`, `publish`, …) invoked as `python -m dungeon_runner.replay.cli <stage>`; **run-all** orchestrator calls the same stages in order. **BC policy training** is stage `bc`; **BC-anchored PPO policy training** is stage `ppo`; **gated promotion** is stage `publish` — uses `--run` plus `--data-dir` for **eval config artifact**.
+_Avoid_: A separate top-level script per pipeline stage with no shared module; a standalone BC script with a different data-root flag name
+
+**BC-anchored PPO policy training**:
+Optional pipeline stage `ppo` that fine-tunes on **Python training sim** rollouts with a **BC anchor** and **rollout opponent roster** including **BC-bot**; writes the same **training run artifact** bundle as **BC policy training** (weights, **metrics artifact**, TensorBoard `tb/`, post-train eval + **gate evaluator preview** on by default, `--no-gate-preview` to skip). v1 deliverable is the **Replay pipeline CLI** stage, not hand-run `scripts/train*.py` alone (scripts may remain for experiments). Unlike **BC policy training**, PPO trains the value head from rollout returns; policy head + trunk receive PPO and **BC anchor** gradients. PPO rollout/update hyperparameters are fixed in code for v1 (like **BC policy training**); CLI tuning is limited to `--bc-run`, anchor strengths, `--ray-workers`, and `--no-ray`. **Gated promotion** remains #8 only.
+_Avoid_: PPO-only script runs as the canonical pipeline step; skipping **metrics artifact** / frozen eval on PPO runs; freezing the value head through PPO as in BC; per-run PPO `--updates` / `--rollout` flags in v1
+
+**PPO BC run**:
+Required CLI path to a `bc-*` **training run artifact**. Stage `ppo` loads init weights from its `policy.weights.h5`, uses the same directory as **BC-only candidate** for **PPO BC regression check**, and records that path in **metrics artifact** `parent_weights` (the BC checkpoint at PPO start, not `latest` unless they coincide).
+_Avoid_: Separate `--init-run` and `--bc-candidate` in v1; **ppo** without an explicit BC artifact path
+
+**BC-only candidate**:
+The **training run artifact** from **BC policy training** used as the baseline for **PPO BC regression check** — in v1 always the **PPO BC run** passed on the CLI.
+_Avoid_: Comparing PPO only to promoted `latest`; “BC-only” meaning human-only dataset rows
+
+**PPO BC regression check**:
+After post-train **replay eval metrics** and **sim eval metrics**, stage `ppo` compares candidate to **BC-only candidate**. Replay leg: candidate **replay eval metrics** must be ≥ BC (strict). Sim leg: candidate win rate must be ≥ BC win rate minus **sim regression tolerance** ε from **eval config artifact** (same ε as **promotion gates** sim leg). Failure exits non-zero but still commits **training run artifact** with `ppo_bc_regression.pass: false` in **metrics artifact**. **Publish CLI** refuses `ppo-*` runs unless that flag is true. Separate from **gate evaluator preview** vs `latest` and **promotion gates**.
+_Avoid_: Treating BC regression as warn-only; discarding artifact on BC regression failure; applying ε to replay accuracy; publishing `ppo-*` when BC regression failed
+
+**PPO start prerequisites**:
+Fail-fast checks before **BC-anchored PPO policy training** begins. Always: **PPO BC run** path, **eval suite artifact**, and **eval config artifact**. **Derived store** with train-split **human step** rows (and val-id sanity vs the suite) required only when **BC anchor CE** is active (`λ > 0`).
+_Avoid_: Requiring a full derived corpus when `λ = 0`; **ppo** without eval artifacts or **PPO BC run**
+
+**BC anchor**:
+Extra imitation pressure during **BC-anchored PPO policy training** beyond rollout PPO loss. v1 implements both legs: **BC anchor CE** (masked cross-entropy on train-split **human step** rows from **derived store**, strength `λ`, default `0.1`) and **BC anchor KL** (divergence vs **frozen BC teacher**, strength `β`, default `0`). Setting `λ = 0` and `β = 0` disables anchoring. Stage `ppo` exposes `--bc-anchor-lambda` and `--bc-anchor-beta` (defaults `0.1` / `0`).
+_Avoid_: “BC anchor” meaning only rollout opponents; conflating anchor with **BC-bot** seat assignment
+
+**BC anchor CE**:
+The human-example leg of **BC anchor**: periodic batches from **derived store** train-split **human step** rows, same masked label rule as **BC policy training**.
+_Avoid_: Re-deriving labels from Python `actions_codec`; applying CE to val-split rows during PPO training
+
+**BC anchor KL**:
+The stay-close-to-BC leg of **BC anchor**: compares the training policy to **frozen BC teacher** action distributions; active only when `β > 0`.
+_Avoid_: Updating the teacher during PPO; KL without a frozen snapshot
+
+**Frozen BC teacher**:
+A non-trainable copy of `policy.weights.h5` snapshotted at **BC-anchored PPO policy training** start from **PPO BC run**. Used for **BC anchor KL** and for **BC-bot** action selection in rollouts.
+_Avoid_: “Frozen BC” meaning promoted `latest`; teacher weights drifting with the learner
+
+**Rollout opponent roster**:
+The opponent types used in **BC-anchored PPO policy training** on **Python training sim**: **RandomBot**, **BC-bot** (**frozen BC teacher**), and self-play (other seats use the learner). v1 samples one **rollout match template** per new match (not long contiguous blocks of a single template).
+_Avoid_: “Roster” meaning eval opponents only; BC-bot on **web game engine** rollouts
+
+**Rollout match template**:
+A fixed lineup rule for one sim match. v1 templates (fixed probabilities in code, default **20% / 45% / 35%**): (1) one **learner** seat vs **RandomBot** opponents, (2) one **learner** vs **BC-bot** opponents, (3) full self-play (all seats **learner**). Each new match draws a template independently so TensorBoard rollout stats stay interleaved. Only **learner** seats contribute transitions to the PPO buffer except template (3), where all seats do. Training mix is separate from **sim eval metrics** (still vs RandomBot on frozen seeds).
+_Avoid_: Long runs of a single template before switching; per-seat independent opponent sampling in v1; assuming rollout RandomBot share must match sim eval opponent
+
+**BC-bot**:
+An opponent seat in **Python training sim** that acts via **frozen BC teacher** forward passes (Keras **PolicyValueModel** + Python `actions_codec` for legal actions). Not the training policy and not **RandomBot**.
+_Avoid_: BC-bot on replay-derived rows; BC-bot meaning the human-labeled **derived store**
+
+**PPO rollout collection**:
+**BC-anchored PPO policy training** gathers **Python training sim** games via Ray-parallel workers by default (`--ray-workers`, default **8** on maintainer dev hardware). CLI `--no-ray` forces single-process collection for debugging or when Ray misbehaves (e.g. macOS). Shared rollout logic backs both modes; `scripts/train*.py` remain non-canonical experiment entrypoints. TensorBoard under `tb/` logs PPO and **BC anchor** losses each update, plus per-**rollout match template** rollout stats (tagged by template so interleaved episodes stay readable).
+_Avoid_: Two unrelated rollout implementations for pipeline vs scripts; unbounded default worker count on laptops; training losses only in **metrics artifact** or only in TensorBoard
 
 **Live replay ingest**:
 Ingest reads new matches directly from Firebase RTDB `dungeonRunnerCompletedMatches` (incremental by top-level match key), not only from dropped export JSON files.
@@ -255,13 +347,15 @@ _Avoid_: "pipeline complete" without a promoted model
 - **Web-authoritative labels** and **replay verifier** use the **web game engine** only; **Python training sim** is legacy PPO/self-play, not a parity target
 - Only **human step** entries contribute human-labeled rows (unless a future envelope adds `humanSeatIds`)
 - **Promotion gates** replay leg uses **replay eval metrics** on **frozen eval suite** val ids from **derived store** (no second Node replay at eval)
+- **BC-anchored PPO policy training** requires **PPO BC run**; optional in **manual pipeline run** via `--with-ppo`
 - **Training data root** holds raw envelopes, **ingest manifest**, and **verify manifest** before dataset build
 - **Replay verifier** and dataset stages require **web engine root**
 - **Eval suite init** draws match ids only from **verify manifest** `verified`
 - **Eval suite artifact** must exist before dataset build; dataset builder fails fast if missing
 - **Replay accuracy floor** lives in **eval config artifact**; first BC baseline sets it once
 - **Eval config init** precedes metrics/gate runs; **eval config artifact** holds seeds and ε before the floor is set
-- BC/PPO write **training run artifact**; **gated promotion** consumes **metrics artifact** + weights from that directory
+- BC/PPO write **training run artifact**; **gated promotion** consumes **metrics artifact** + weights from that directory and updates **production latest** symlink
+- **Promoted version** semver dirs are separate from **training run id** under `models/runs/`
 - **Dataset build** reads **verify manifest** `verified` only; default scope is **pending dataset** (full refresh via CLI flag)
 
 ## Example dialogue
@@ -322,6 +416,53 @@ _Avoid_: "pipeline complete" without a promoted model
 - Issue #5 promotion before floor — resolved: **fail closed** on promote while floor null; baseline run writes floor then gates apply.
 - Issue #5 default sim seed count — resolved: sixteen seeds (`0`–`15`) at **eval config init** unless maintainer edits the artifact.
 - Issue #5 default sim regression tolerance — resolved: **sim regression tolerance** `0.01` at **eval config init**.
+- Issue #6 BC loss scope — resolved: **BC policy training** updates trunk + policy head only; value head frozen in v1.
+- Issue #6 checkpoint selection — resolved: **BC best checkpoint** (best val human masked accuracy), not last epoch.
+- Issue #6 early-stop vs replay metric — resolved: same masked-accuracy definition; post-train **replay eval metrics** on **BC best checkpoint** sets floor and **metrics artifact**.
+- Issue #6 CLI entry — resolved: **BC policy training** via **Replay pipeline CLI** subcommand `bc` (`python -m dungeon_runner.replay.cli bc`).
+- Issue #6 **training run id** — resolved: default `bc-YYYYMMDDTHHMMSSZ`; optional `--run-id` override.
+- Issue #6 post-train chain — resolved: `bc` writes artifact, **floor recorder**, default **gate evaluator preview**; promote in #8 only.
+- Issue #6 artifact atomicity — resolved: `.tmp` staging dir + rename; `metrics.json` last in staging.
+- Issue #6 BC hyperparameters — resolved: fixed constants in code for v1; no BC CLI tuning flags.
+- Issue #6 BC prerequisites — resolved: **BC start prerequisites** fail fast (train+val human rows, eval artifacts, parent weights, val id sanity).
+- Issue #6 `train.bc_loss` — resolved: full train-split human CE on **BC best checkpoint** weights in **metrics artifact**.
+- Issue #6 train row ordering — resolved: global shuffle with fixed seed in code before batching.
+- Issue #6 weight paths — resolved: `--data-dir` for replay/derived/eval only; repo-root `models/` for parent and **training run artifact** in v1.
+- Issue #6 `parent_weights` field — resolved: absolute resolved path in **metrics artifact**.
+- Issue #6 TensorBoard — resolved: always per-run `tb/` (staged under `.tmp`, committed with artifact); per-epoch `train/bc_loss` and `val/masked_accuracy`.
+- Issue #7 PPO CLI surface — resolved: **BC-anchored PPO policy training** is **Replay pipeline CLI** stage `ppo` with **training run artifact** parity to `bc`; `scripts/train*.py` are non-canonical dev entrypoints.
+- Issue #7 PPO start weights — resolved: required **`--bc-run`** sets init weights and **BC-only candidate**; **parent_weights** records that BC path.
+- Issue #7 BC anchor — resolved: **BC anchor CE** (`λ`, default on) + **BC anchor KL** (`β`, default off) vs **frozen BC teacher**; both knobs configurable.
+- Issue #7 rollout opponents — resolved: **rollout match template** per new match (learner vs RandomBot, learner vs **BC-bot**, self-play); fixed template probabilities in code; per-template TensorBoard tags later; no contiguous template blocks.
+- Issue #7 value head — resolved: PPO trains value head from sim returns; BC-style value freeze applies to **BC policy training** only.
+- Issue #7 rollout collection — resolved: Ray-parallel `--ray-workers` default **8**; `--no-ray` single-process fallback on `replay.cli ppo`.
+- Issue #7 PPO BC regression — resolved: **PPO BC regression check** fails stage (exit ≠ 0) on replay or sim regression vs **BC-only candidate**; artifact still written.
+- Issue #7 PPO prerequisites (dataset) — resolved: **derived store** / BC-style row checks only when `λ > 0`; init weights always.
+- Issue #7 PPO prerequisites (BC artifact) — resolved: **PPO BC run** (`--bc-run`) always required before **ppo** starts.
+- Issue #7 PPO prerequisites (eval) — resolved: **eval suite artifact** and **eval config artifact** always required (same as **BC policy training** post-train eval).
+- Issue #7 run-all — resolved: **run-all** stops after `bc` by default; `--with-ppo` runs `ppo` against that BC artifact.
+- Issue #8 run-all publish — resolved: **gated promotion** never by default; `--with-publish` opt-in chains `publish --run` on the last train artifact.
+- Issue #7 default λ — resolved: **BC anchor CE** default `λ = 0.1`; **BC anchor KL** default `β = 0`.
+- Issue #7 template mix — resolved: default **20% / 45% / 35%** (RandomBot / BC-bot / self-play); RandomBot minority seasoning only.
+- Issue #7 anchor CLI — resolved: `--bc-anchor-lambda` and `--bc-anchor-beta` on `replay.cli ppo`.
+- Issue #7 training run id — resolved: default `ppo-` + UTC timestamp; optional `--run-id` (same pattern as `bc-`).
+- Issue #7 gate preview — resolved: **gate evaluator preview** on by default for `ppo`; `--no-gate-preview` to skip.
+- Issue #7 PPO BC regression strictness — resolved: replay strict vs **BC-only candidate**; sim allows ε from **eval config artifact**.
+- Issue #7 PPO hyperparameters — resolved: fixed in code for v1; CLI limited to `--bc-run`, anchor flags, Ray/`--no-ray`.
+- Issue #7 PPO metrics — resolved: `train.ppo_loss`, `train.bc_anchor_ce`, `train.bc_anchor_kl` in **metrics artifact** and matching TensorBoard scalars; per-template rollout tags in TensorBoard.
+- Issue #8 promoted dir name — resolved: **promoted version** is semver under `models/<version>/`, not **training run id**.
+- Issue #8 **production latest** — resolved: `models/latest/` is a symlink to the current **promoted version** dir, not a duplicate weights tree.
+- Issue #8 semver line — resolved: first replay-pipeline promote is `v0.2`; then `v0.2.01`, `v0.2.02`, … (two-digit patch); legacy `v0.1.*a` epoch dirs are not the allocator template.
+- Issue #8 **promotion manifest** — resolved: `promotion.json` per **promoted version** dir + append `models/promotions.jsonl`; metrics snapshot copied into promoted dir.
+- Issue #8 **publish gate evaluation** — resolved: trust committed **metrics artifact** + **eval config artifact**; no re-eval at publish.
+- Issue #8 **Publish CLI** — resolved: `replay.cli publish --run <dir> --data-dir …`; reject `*.tmp`.
+- Issue #8 re-publish — resolved: same **training run id** cannot promote twice; JSONL is the source of truth.
+- Issue #8 **publish run atomicity** — resolved: stage `.<version>.tmp/` → rename; symlink + JSONL last.
+- Issue #8 minor semver bump — resolved: manual `publish --version` only; patch auto-bump under current minor line.
+- Issue #8 PPO at publish — resolved: `publish` hard-fails `ppo-*` unless **metrics artifact** records `ppo_bc_regression.pass: true`.
+- Issue #8 legacy `latest/` — resolved: #8 migrates duplicate `latest/` → symlink to `v0.1.30a`.
+- Issue #8 semver + symlink — recorded in [ADR 0002](docs/adr/0002-promoted-version-semver-and-latest-symlink.md).
+- Issue #6 floor write — resolved: **floor recorder** uses atomic replace for **eval config artifact**.
 - Issue #4 Node handoff — resolved: one Node process per match; JSON row array on stdout; Python owns Parquet + `meta.json`.
 - Issue #4 `meta.json` — resolved: `match_id`, **dataset encoding version**, `row_count`, `built_at` (no raw content-hash in v1).
 - portfolio-site `database.rules.json` is fully open today; **RTDB ingest access** may need Admin SDK or auth when rules tighten.
