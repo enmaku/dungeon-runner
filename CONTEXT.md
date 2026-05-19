@@ -12,13 +12,17 @@ _Avoid_: "game log", "save file"
 The versioned contract for a completed match (portfolio-site authors the shape; dungeon-runner ingests and verifies it).
 _Avoid_: "replay JSON" without version context
 
+**Replay envelope contract (v1)**:
+Normative field and eligibility rules for **replay envelope version** `1` in a dedicated portfolio-site `CONTRACT.md` section (`## Replay envelope contract (v1)`), with a v2 planned appendix in the same area. dungeon-runner adds a cross-linked pipeline doc for ingest-only extensions (skip reason codes, `raw/{matchId}.json` layout, RTDB map shape)—not a second full copy of the field list. Planned **replay envelope version** `2` fields are documented only in portfolio-site CONTRACT; ingest skips unsupported versions until a later issue implements them.
+_Avoid_: Duplicating the full v1 spec or v2 roadmap in dungeon-runner `CONTEXT.md`; burying the spec as a single bullet under Debug only; treating dungeon-runner pipeline docs as the producer-owned rules source
+
 **Replay envelope version**:
-Integer schema id on each envelope. v1 ingest accepts only `version === 1`; other or missing values are skipped (not coerced) with a recorded skip reason.
-_Avoid_: "schema version" without the integer field name `version`
+Integer schema id on each envelope. v1 ingest requires a true integer `1` (not string, bool, or float); missing or any other value is skipped as `unsupported_version` without coercion. portfolio-site `importReplayEnvelope` uses a looser `version !== 1` check—dungeon-runner may reject edge types web would reject anyway; pipeline doc notes any intentional divergence.
+_Avoid_: "schema version" without the integer field name `version`; coercing missing version to `1`; accepting string `"1"` at ingest
 
 **Derived training row**:
-One row per envelope `history` entry that has an `action`: **pre-action** `obs` (87) and `mask` (26) at that decision, plus **policy action index** for the action taken. Human and NN history steps both produce rows; `is_human` distinguishes **human step** entries. Row `step` is the 0-based **history index**; seat is **actor seat id** from that entry (not engine seat index). `phase` and `subphase` string columns copy the web session/kernel fields at that decision verbatim. Optional `model_id` from history `action.modelId` when present; optional `nn_debug` JSON blob on non-human rows when the web policy path returns debug info (null on **human step** rows).
-_Avoid_: "sample", "datapoint"; post-action obs/mask; rows only for human steps; engine seat index as the stored seat key; Python **Match** phase names; `nn_debug` on human rows; deriving **policy action index** from Python `actions_codec`
+One row per envelope `history` entry that has an `action`: **pre-action** `obs` (87) and `mask` (26) at that decision, plus **policy action index** for the action taken. **Human step**, **Non-NN history step**, and NN steps can all produce rows; `is_human` is true only for **human step** entries. Row `step` is the 0-based **history index**; seat is **actor seat id** from that entry (not engine seat index). `phase` and `subphase` string columns copy the web session/kernel fields at that decision verbatim. Optional `model_id` from history `action.modelId` when present; optional `nn_debug` JSON blob on non-human rows when the web policy path returns debug info (null on **human step** rows).
+_Avoid_: "sample", "datapoint"; post-action obs/mask; rows only for human steps; setting `is_human` from `modelId` absent alone; engine seat index as the stored seat key; Python **Match** phase names; `nn_debug` on human rows; deriving **policy action index** from Python `actions_codec`
 
 **Policy action index**:
 Integer 0–25 labeling the chosen action in the production policy layout (87-dim obs, 26-dim mask). Authored and mapped from replay `action.type` only in portfolio-site; Node replay emits it per step.
@@ -28,9 +32,13 @@ _Avoid_: "action id"; re-deriving indices in dungeon-runner Python
 History field `actorSeatId` (`seat-1`…`seat-4`) naming which seat took the step. Maps to engine seat index only after `randomizeSeatsFromSetup` from envelope `seed` + `setup`; **replay verifier** requires it to match the engine’s current actor each step.
 _Avoid_: Treating `seat-1` as the human player; ignoring `actorSeatId` during verify
 
+**Non-NN history step**:
+A history entry whose `action` has no `modelId` (human player and **randombot** steps both qualify). Envelope-level NN vs not-NN marker in v1 until **replay envelope version** 2 `humanSeatIds`.
+_Avoid_: Calling these "human" in BC/training docs; inferring the human player seat from `modelId` alone
+
 **Human step**:
-A history entry whose `action` has no `modelId` (human is not listed in setup; seat is seed-shuffled). Used to set `is_human` on **derived training rows**.
-_Avoid_: Assuming `seat-1`, or requiring `humanSeatIds` in v1
+A history entry whose **actor seat id** is the human player seat after setup seat shuffle (resolved at **dataset build** / **web game engine** replay—not from `modelId` absent alone). Sets `is_human: true` on **derived training rows**. Human is not listed in `setup.opponents`; seat assignment is seed-shuffled.
+_Avoid_: Assuming `seat-1`; treating **Non-NN history step** as **human step**; requiring `humanSeatIds` in v1 envelope
 
 **Gated promotion**:
 Copying candidate weights from **training run artifact** to `models/<promoted version>/` only after **promotion gates** pass, then repointing **production latest** at that directory.
@@ -42,7 +50,43 @@ _Avoid_: Using `bc-*` / `ppo-*` run ids as promoted dir names; continuing the `v
 
 **Production latest**:
 Symlink `models/latest/` → `../<promoted version>/`; holds `policy.weights.h5` via the target dir. Updated only by **gated promotion** (#8), never by `bc`/`ppo` or failed publish. Issue #8 includes a one-time migration replacing the legacy duplicate `latest/` directory with a symlink to `v0.1.30a` until the first `v0.2` **gated promotion** repoints it.
-_Avoid_: A real directory that duplicates weights; manual copy into `latest` without publish; treating `latest` as a version string
+_Avoid_: A real directory that duplicates weights; manual copy into `latest` without publish; treating `latest` as a version string; conflating with **web deployed latest**
+
+**Web deployed latest**:
+portfolio-site directory `public/models/dungeon-runner/latest/` with TF.js `model.json` + shards; overwritten on each **TF.js model sync** from the new **promoted version** so default opponent `modelId: 'latest'` tracks production without editing setup. A copied deploy alias, not dungeon-runner’s **production latest** symlink and not semver history.
+_Avoid_: Expecting portfolio `latest/` to symlink to `v0.2/`; skipping **web deployed latest** refresh when only semver was synced; using `models/runs/*` as the sync source id
+
+**Dungeon-runner root**:
+Filesystem path to the dungeon-runner repo for portfolio-site **TF.js model sync** (`DUNGEON_RUNNER_ROOT` in portfolio-site `.env.example`), mirroring **web engine root** (`PORTFOLIO_SITE_ROOT`) on the dungeon-runner side.
+_Avoid_: "models repo path" without naming the env var; requiring GitHub clone when sibling checkout exists
+
+**TF.js model sync**:
+Manual portfolio-site step after **gated promotion**: one command converts `models/<promoted version>/policy.weights.h5` to semver TF.js, then regenerates **model catalog**. Overwrites **web deployed latest** only when the target id equals dungeon-runner **production latest** (including `--from-latest` resolution); otherwise semver TF.js only. Maintainer passes an explicit **promoted version** in the release checklist; optional `--from-latest` resolves from **production latest**. H5 source: local `DUNGEON_RUNNER_ROOT` when set and file exists; else shallow clone. Never a **training run id**.
+_Avoid_: Bare `sync` as the only documented path; single-id sync of an old semver id overwriting **web deployed latest**; `sync … bc-*`; `sync --all` refreshing **web deployed latest** per directory in loop order; accepting explicit semver ids not in **promotion manifest** ledger
+
+**Two-repo model release**:
+Maintainer flow spanning **gated promotion** (dungeon-runner) then **TF.js model sync** (portfolio-site), documented in split checklists: dungeon-runner **Replay pipeline documentation** covers publish + pointer to portfolio-site; portfolio-site docs cover sync, **model catalog**, manual smoke play on `/projects/dungeon-runner`, and optional automated guard (e.g. `runtime.test.js` fails if **web deployed latest** artifacts missing after sync). Together they complete **Epic v1 success bar**. Excludes automated git commit, production Firebase deploy, and mandatory headless WebGL CI.
+_Avoid_: Full checklist in one repo only; duplicate full steps in both repos; headless WebGL as the only smoke; conflating with **gated promotion** alone
+
+**Portfolio-site coordination issue**:
+Umbrella tracker in portfolio-site ([#128](https://github.com/enmaku/portfolio-site/issues/128)) for all epic v1 work in the playable repo: **replay envelope contract** in CONTRACT, minimal harness exports, golden fixture, env cross-links, and **TF.js model sync** / **release smoke** ([#127](https://github.com/enmaku/portfolio-site/issues/127)). May start in parallel with dungeon-runner #8 (**gated promotion**); first end-to-end promote → sync waits on a real **promoted version**. dungeon-runner #11 remains the epic cross-repo tracker.
+_Avoid_: Blocking portfolio work on #8 merge; marking portfolio coordination done before CONTRACT + export + sync streams complete; conflating #127 alone with the full portfolio-site scope; all cross-repo work in one dungeon-runner PR
+
+**Release smoke**:
+Post-sync verification that TF.js loads and returns a legal action: required manual pass in the browser; optional fast Node test on **web deployed latest** artifacts. Not a second inference-quality eval.
+_Avoid_: Calling **replay eval metrics** or **promotion gates** “smoke”; WebGL-only automation as v1 gate
+
+**TF.js sync backfill**:
+Rebuilding TF.js trees for older **promoted version** dirs (e.g. after converter fixes) without changing what players load as **web deployed latest**. Uses portfolio-site `sync --all` (or equivalent): convert every semver dir under dungeon-runner `models/`, refresh **web deployed latest** only from **production latest** target, then **model catalog**. Distinct from the post-promote single-id sync.
+_Avoid_: Treating backfill like a new promote; `--all` overwriting **web deployed latest** with whichever dir sorts last
+
+**Model catalog**:
+portfolio-site `public/models/dungeon-runner/models.json` listing on-disk TF.js dirs (semver ids plus `latest`); regenerated after sync from directories that contain `model.json`. Append-only in normal releases: new **promoted version** ids are added, not removed. Re-syncing an existing semver id overwrites that folder only for **TF.js sync backfill** or converter fixes.
+_Avoid_: Hand-editing the catalog; deleting historical semver dirs in routine promote; treating catalog ids as dungeon-runner **training run id**s
+
+**Deployed model version**:
+A semver-labeled TF.js tree under `public/models/dungeon-runner/<promoted version>/` mirroring a dungeon-runner **promoted version** H5 bundle. Immutable identity in git history; bytes may be replaced only by intentional re-sync of the same id.
+_Avoid_: "model version" meaning **training run id**; expecting portfolio semver folders to track `models/runs/`
 
 **Promotion manifest**:
 Audit record written only on successful **gated promotion**: per **promoted version** dir (`promotion.json` with version, `parent_weights`, timestamp, **training run id**, pointer to metrics snapshot) plus one append-only line in repo-level `models/promotions.jsonl`. A full copy of the run **metrics artifact** lives in the promoted dir alongside weights.
@@ -89,12 +133,12 @@ Fixed held-out match ids (~20% of ingested matches, chosen once) for **replay ev
 _Avoid_: "validation set" without specifying match-level holdout vs step-level; implying metrics re-invoke the **web game engine**
 
 **Eval suite artifact**:
-Frozen file at `data/replays/eval_suite.json` (alongside ingest manifest), produced once by `eval_suite init`. Lists `val_match_ids`, suite version, and sampling seed; val ids chosen via seeded random ~20% (minimum one val match when at least two matches exist). Committed after first init so splits are stable across machines.
-_Avoid_: Re-deriving the val split each time the dataset is built
+Frozen file at `data/replays/eval_suite.json` (alongside ingest manifest), produced once by `eval_suite init`. Lists `val_match_ids`, suite version, and sampling seed; val ids chosen via seeded random ~20% (minimum one val match when at least two matches exist). **Frozen on disk** after first init under gitignored **training data root** (not checked into git); backup with the replay tree; stable across pipeline runs on the same machine until suite version is bumped and init is re-run.
+_Avoid_: Re-deriving the val split each time the dataset is built; treating “committed” as git-tracked; gitignore exceptions for eval files under `data/`
 
 **Eval config artifact**:
-File at `data/replays/eval_config.json` under **training data root**: **replay accuracy floor**, fixed **legacy Python sim benchmarks** seed list, and **sim regression tolerance** (default `0.01` at **eval config init**). Separate from **eval suite artifact** so holdout re-init does not overwrite thresholds. **Floor recorder** updates use atomic replace (`eval_config.json.tmp` then rename).
-_Avoid_: Storing the floor or sim seeds only inside **eval suite artifact** or per-run `metrics.json`; in-place partial writes of **eval config artifact**
+File at `data/replays/eval_config.json` under **training data root**: **replay accuracy floor**, fixed **legacy Python sim benchmarks** seed list, and **sim regression tolerance** (default `0.01` at **eval config init**). Separate from **eval suite artifact** so holdout re-init does not overwrite thresholds. **Frozen on disk** like **eval suite artifact** (local-only under `data/`). **Floor recorder** updates use atomic replace (`eval_config.json.tmp` then rename).
+_Avoid_: Storing the floor or sim seeds only inside **eval suite artifact** or per-run `metrics.json`; in-place partial writes of **eval config artifact**; checking eval config into the repo while raw replays stay gitignored
 
 **Sim regression tolerance**:
 ε in **eval config artifact** for the sim leg of **promotion gates**: candidate win rate may be up to ε below `latest` on the frozen seed list (default `0.01`).
@@ -204,6 +248,10 @@ _Avoid_: "manual ingest" meaning export files only; a monolith with no stage bou
 Shared package entry point with subcommands (`ingest`, `verify`, `dataset`, `bc`, `ppo`, `publish`, …) invoked as `python -m dungeon_runner.replay.cli <stage>`; **run-all** orchestrator calls the same stages in order. **BC policy training** is stage `bc`; **BC-anchored PPO policy training** is stage `ppo`; **gated promotion** is stage `publish` — uses `--run` plus `--data-dir` for **eval config artifact**.
 _Avoid_: A separate top-level script per pipeline stage with no shared module; a standalone BC script with a different data-root flag name
 
+**Replay pipeline documentation**:
+Maintainer runbook at `docs/replay-pipeline.md`: staged CLI commands, **training data root** layout, env vars, manifest JSON examples, full **ingest manifest** skip-reason table (code, trigger, coarse web import mapping), and cross-links to portfolio-site **Replay envelope contract (v1)**, portfolio-site `CONTEXT.md`, and portfolio-site ADRs. Cross-repo links use **web engine root** / sibling checkout paths as primary and matching `github.com/enmaku/portfolio-site` URLs as fallback (same pattern for CONTRACT, CONTEXT, ADRs). Root `README.md` links here in a short **Replay training pipeline** section (plus this glossary). Phase A ships the full staged pipeline map (stage, purpose, CLI subcommand, doc-when pointer) with ingest as the only detailed slice, including an **Intentional strictness** subsection for **replay envelope version** (integer `1` only vs web `!== 1`). **Gated promotion** vs portfolio-site TF.js sync (#11) is noted in the table, not a full two-repo release checklist. Later issues extend the doc per stage without one big-bang rewrite. Domain terms live in this `CONTEXT.md` glossary only.
+_Avoid_: Putting directory trees or flag lists in `CONTEXT.md`; duplicating CONTRACT in dungeon-runner; GitHub-only links that ignore `PORTFOLIO_SITE_ROOT`; splitting Phase A ingest into many small doc files before later stages exist; skip codes only as a bullet list without triggers; Phase A prose stubs that duplicate downstream issue PRDs
+
 **BC-anchored PPO policy training**:
 Optional pipeline stage `ppo` that fine-tunes on **Python training sim** rollouts with a **BC anchor** and **rollout opponent roster** including **BC-bot**; writes the same **training run artifact** bundle as **BC policy training** (weights, **metrics artifact**, TensorBoard `tb/`, post-train eval + **gate evaluator preview** on by default, `--no-gate-preview` to skip). v1 deliverable is the **Replay pipeline CLI** stage, not hand-run `scripts/train*.py` alone (scripts may remain for experiments). Unlike **BC policy training**, PPO trains the value head from rollout returns; policy head + trunk receive PPO and **BC anchor** gradients. PPO rollout/update hyperparameters are fixed in code for v1 (like **BC policy training**); CLI tuning is limited to `--bc-run`, anchor strengths, `--ray-workers`, and `--no-ray`. **Gated promotion** remains #8 only.
 _Avoid_: PPO-only script runs as the canonical pipeline step; skipping **metrics artifact** / frozen eval on PPO runs; freezing the value head through PPO as in BC; per-run PPO `--updates` / `--rollout` flags in v1
@@ -261,15 +309,15 @@ Ingest reads new matches directly from Firebase RTDB `dungeonRunnerCompletedMatc
 _Avoid_: Conflating "no cron" with "no RTDB pull"
 
 **Firebase database URL**:
-The only required Firebase env var for **live replay ingest** v1: `FIREBASE_DATABASE_URL` in gitignored `.env` at repo root (loaded automatically on ingest; same value as portfolio-site `VITE_FIREBASE_DATABASE_URL`). API key and other web client vars are not loaded by ingest until authenticated RTDB access is needed.
-_Avoid_: "Firebase config" when only the database URL is needed
+The only required Firebase env var for **live replay ingest** v1: `FIREBASE_DATABASE_URL` in gitignored `.env` at repo root (loaded automatically on ingest; same value as portfolio-site `VITE_FIREBASE_DATABASE_URL`). `.env.example` documents this var and **web engine root** together with stage comments (ingest vs verify/dataset). API key and other web client vars are not loaded by ingest until authenticated RTDB access is needed.
+_Avoid_: "Firebase config" when only the database URL is needed; Phase A `.env.example` omitting **web engine root** when the two-repo setup is documented upfront
 
 **Web engine root**:
 Filesystem path to the portfolio-site repo root, supplied as `PORTFOLIO_SITE_ROOT` in gitignored `.env` (loaded on verify/dataset stages). **Replay verifier** loads existing portfolio-site modules (`debug/replaySession.js`, `nn/policyAdapter.js`, …) from that path; verify fails fast if unset.
 _Avoid_: Vendoring the kernel into dungeon-runner; submodule as the v1 default; large new portfolio-site APIs for training
 
 **Pipeline consumer**:
-dungeon-runner treats portfolio-site as producer of **completed match replay** envelopes and rules truth; v1 work consumes those outputs and orchestrates Node against existing web modules, with portfolio-site code changes kept minimal (e.g. exporting `encodeActionIndex` from `policyAdapter.js` when the harness needs it).
+dungeon-runner treats portfolio-site as producer of **completed match replay** envelopes and rules truth; v1 work consumes those outputs and orchestrates Node against existing web modules, with portfolio-site code changes kept minimal (e.g. exporting `encodeActionIndex` from `policyAdapter.js` when the harness needs it). **Replay envelope contract (v1)** field rules live in portfolio-site `CONTRACT.md`; ingest extensions live in dungeon-runner pipeline docs.
 _Avoid_: Blocking dungeon-runner issues on portfolio-site feature PRs; duplicating envelope or replay logic in Python
 
 **RTDB ingest access**:
@@ -285,8 +333,12 @@ Ingest path via `--from-export path.json` reading the same top-level match-id ma
 _Avoid_: Treating export files as the only v1 input
 
 **Training data root**:
-Gitignored directory (default `data/replays/`, overridable via pipeline `--data-dir`) holding `raw/{matchId}.json` envelopes, `manifest.json` (**ingest manifest**), `verify_manifest.json` (**verify manifest**), **eval suite artifact**, **eval config artifact**, and per-match **derived match artifact** files under `derived/`.
-_Avoid_: Storing replays under `models/` or the repo root
+Gitignored directory (default `data/replays/`, overridable via pipeline `--data-dir`) holding `raw/{matchId}.json` envelopes, `manifest.json` (**ingest manifest**), `verify_manifest.json` (**verify manifest**), **eval suite artifact**, **eval config artifact**, and per-match **derived match artifact** files under `derived/`. Repo `.gitignore` covers all of `data/` (not only `data/replays/`), so nothing under that tree is committed.
+_Avoid_: Storing replays under `models/` or the repo root; committing raw replays or manifests; gitignoring only `data/replays/` while leaving sibling `data/*` tracked by accident
+
+**Raw envelope store**:
+Per-match file `raw/{matchId}.json` under **training data root** containing the eligible envelope body only (match id in the path, not required inside JSON). Ingest writes the payload **verbatim** after **ingest eligibility** passes—including unknown top-level keys, optional nested `matchId` on the body, and full history entry objects (NN `__debug`, etc.). Canonical match id is always the RTDB key / filename, never body `matchId`.
+_Avoid_: Stripping unknown envelope keys at ingest; rejecting ingest solely because body `matchId` exists; using body `matchId` when it disagrees with the path key
 
 **Derived match artifact**:
 Per-match directory `derived/{matchId}/` with `rows.parquet` (**derived training rows**) and `meta.json` (`match_id`, **dataset encoding version**, `row_count`, `built_at` UTC ISO-8601). Produced by **dataset build**; presence and version stamp determine **pending dataset**. Node harness emits row JSON on stdout per match; Python writes Parquet and metadata.
@@ -317,8 +369,8 @@ A single **dataset build** either completes all **pending dataset** matches in t
 _Avoid_: Committing per-match Parquet mid-run while later matches fail; treating a crashed run as success
 
 **Ingest manifest**:
-`manifest.json` under **training data root** with `ingested` (match id strings written to `raw/`) and `skipped` (`id` + machine-readable `reason`, e.g. `unsupported_version`). Dedup is by match id only—any id in either list is not re-fetched in v1.
-_Avoid_: "processed ids file" without skip reasons
+`manifest.json` under **training data root** with `ingested` (match id strings written to `raw/`) and `skipped` (`id` + machine-readable `reason`, e.g. `unsupported_version`). Skip reasons are granular for ingest audit (version, seed, setup, history, presentation speed, etc.); portfolio-site `importReplayEnvelope` may keep coarser web error codes—eligibility behavior must match, reason strings need not. Dedup is by match id only—any id in either list is not re-fetched in v1.
+_Avoid_: "processed ids file" without skip reasons; requiring web and ingest to share identical reason code strings
 
 **Manual re-ingest**:
 Pulling a match id again after it appears in **ingest manifest**; maintainer removes that id from the manifest and deletes its raw envelope first. RTDB payload edits under the same key are not detected automatically in v1.
@@ -329,12 +381,12 @@ A single ingest run either completes all new pulls and eligibility writes and th
 _Avoid_: Leaving a half-updated manifest after a failed pull
 
 **Ingest eligibility**:
-A match passes ingest only when it would pass portfolio-site `importReplayEnvelope` (version, seed, setup, history shape including per-entry RNG step rules; optional `presentationSpeedProfile` enum). Skipped matches are recorded in **ingest manifest** with a reason code. Structural checks only—**replay verifier** owns full replay to `match-over`.
-_Avoid_: "valid replay" at ingest; expecting ingest to prove `match-over`
+A match passes ingest only when it would pass portfolio-site `importReplayEnvelope` (version, seed, setup, history shape including per-entry RNG step rules; optional `presentationSpeedProfile` enum). Empty `history` arrays are eligible if import would pass; **replay verifier** rejects non-terminal replays. Enforced at ingest without **web engine root**; dungeon-runner keeps behavior aligned via acceptance tests keyed to portfolio-site replay import cases. Skipped matches are recorded in **ingest manifest** with a granular reason code. Shape/RNG-chain only—**replay verifier** owns full replay to `match-over`.
+_Avoid_: "valid replay" at ingest; expecting ingest to prove `match-over`; rejecting `history: []` at ingest when web import accepts it; Node or **web game engine** at ingest; eligibility logic drifting from web import without shared test coverage
 
 **Structural envelope check**:
-Shape and static RNG-chain validation equivalent to `importReplayEnvelope`; performed at ingest only. **Replay verifier** does not repeat it for **pending verify** matches.
-_Avoid_: Duplicating structural checks at verify; using structural pass as a substitute for **verified replay**
+Same shape and static RNG-chain rules as **ingest eligibility**; performed at ingest only. **Replay verifier** does not repeat it for **pending verify** matches.
+_Avoid_: Duplicating structural checks at verify; using structural pass as a substitute for **verified replay**; treating this as a separate rule set from **ingest eligibility**
 
 **Epic v1 success bar**:
 At least one **gated promotion** plus a documented manual two-repo release path; **promotion gates** are guardrails inside that bar. PPO remains in the pipeline but is not required for a given promotion. Ingest is **live replay ingest** inside a **manual pipeline run**.
@@ -343,9 +395,12 @@ _Avoid_: "pipeline complete" without a promoted model
 ## Relationships
 
 - A **completed match replay** is ingested raw, then verified, then yields many **derived training rows**
-- **Gated promotion** in dungeon-runner precedes portfolio-site TF.js sync (separate repo step)
+- **Gated promotion** in dungeon-runner precedes **TF.js model sync** (separate portfolio-site step)
+- Each **TF.js model sync** after promote writes semver TF.js and, when the id matches **production latest**, overwrites **web deployed latest**
+- **Two-repo model release** follows **gated promotion** and is documented for **Epic v1 success bar**
+- **Portfolio-site coordination issue** ([#128](https://github.com/enmaku/portfolio-site/issues/128)) owns portfolio-side deliverables; **TF.js model sync** implementation in [#127](https://github.com/enmaku/portfolio-site/issues/127); dungeon-runner #11 tracks epic closure
 - **Web-authoritative labels** and **replay verifier** use the **web game engine** only; **Python training sim** is legacy PPO/self-play, not a parity target
-- Only **human step** entries contribute human-labeled rows (unless a future envelope adds `humanSeatIds`)
+- Only **human step** entries get `is_human` on **derived training rows** (BC trains on those); **Non-NN history step** without human seat (e.g. randombot) still produces rows but not human-labeled ones unless a future envelope adds `humanSeatIds`
 - **Promotion gates** replay leg uses **replay eval metrics** on **frozen eval suite** val ids from **derived store** (no second Node replay at eval)
 - **BC-anchored PPO policy training** requires **PPO BC run**; optional in **manual pipeline run** via `--with-ppo`
 - **Training data root** holds raw envelopes, **ingest manifest**, and **verify manifest** before dataset build
@@ -462,7 +517,49 @@ _Avoid_: "pipeline complete" without a promoted model
 - Issue #8 PPO at publish — resolved: `publish` hard-fails `ppo-*` unless **metrics artifact** records `ppo_bc_regression.pass: true`.
 - Issue #8 legacy `latest/` — resolved: #8 migrates duplicate `latest/` → symlink to `v0.1.30a`.
 - Issue #8 semver + symlink — recorded in [ADR 0002](docs/adr/0002-promoted-version-semver-and-latest-symlink.md).
+- Issue #9 normative v1 spec location — resolved: portfolio-site `CONTRACT.md` authoritative for envelope fields/eligibility; dungeon-runner pipeline doc for ingest-only extensions (cross-link, no duplicate full spec).
+- Issue #9 ingest skip reason codes — resolved: granular codes in **ingest manifest** only; web `importReplayEnvelope` stays coarse; eligibility behavior must mirror web, reason strings need not match.
+- Issue #9 ingest enforcement mechanism — resolved: dungeon-runner-local eligibility (no **web engine root** on ingest); parity guarded by acceptance tests aligned with portfolio-site replay import tests.
+- Issue #9 unknown envelope fields — resolved: **raw envelope store** preserves full eligible payload verbatim; unknown top-level keys are not stripped at ingest.
+- Issue #9 human step vs `modelId` — resolved: **Non-NN history step** = no `action.modelId`; **Human step** / `is_human` = resolved human seat at **dataset build**, not envelope-only inference.
+- Epic #1 human labeling — resolved (2026-05-19): epic PRD uses **`is_human`** / **human step** (dataset seat resolution) everywhere; dropped `action.modelId` absent as the human definition.
+- Epic #1 row grain vs BC — resolved (2026-05-19): epic user story 4 — all history **action** steps → **derived training rows**; BC + replay gates use `is_human=true` only.
+- Epic #1 eval bootstrap order — resolved (2026-05-19): epic user story 7 — **`eval_suite init`** + **`eval_config init`** after verify, before first **`dataset` build** (≥2 verified ids).
+- Epic #1 promotion pre-floor — resolved (2026-05-19): epic user story 13 — **gated promotion** blocked until first **BC baseline run** writes **replay accuracy floor**; train artifacts + preview still allowed.
+- Epic #1 PPO publish — resolved (2026-05-19): epic user story 14 — `publish` on `ppo-*` requires **PPO BC regression check** pass plus **promotion gates** vs `latest`.
+- Epic #1 artifact layout — resolved (2026-05-19): epic user stories 12/15 — candidates in `models/runs/`; **gated promotion** copies to `models/<promoted version>/` + **production latest** symlink.
+- Epic #1 manifests — resolved (2026-05-19): epic user stories 22/26 — **ingest manifest** vs **verify manifest**; no dataset manifest in v1.
+- Epic #1 post-freeze ingest — resolved (2026-05-19): epic **Frozen eval suite** row — new ingests after init → train only until suite version bump + re-init.
+- Epic #1 gate preview vs publish — resolved (2026-05-19): epic user story 24 + **Manual pipeline run** row — **gate evaluator preview** after train; **`publish`** separate unless `--with-publish`.
+- Issue #9 nested body `matchId` — resolved: allowed in **raw envelope store** if otherwise eligible; canonical id is path/RTDB key only.
+- Issue #9 `version` type strictness — resolved: ingest requires integer `1`; document any gap vs web `!== 1` in pipeline doc; no portfolio-site code change in #9 scope.
+- Issue #9 v2 documentation — resolved: v2 field roadmap in portfolio-site CONTRACT only; dungeon-runner pipeline doc links + states skip-until-supported ingest behavior.
+- Issue #9 empty `history` — resolved: eligible at ingest when web import accepts; failure at **replay verifier**, not ingest skip.
+- Issue #9 portfolio-site CONTRACT layout — resolved: dedicated `## Replay envelope contract (v1)` section (+ v2 appendix), not only a Debug bullet.
 - Issue #6 floor write — resolved: **floor recorder** uses atomic replace for **eval config artifact**.
+- Issue #10 pipeline doc location — resolved: single **Replay pipeline documentation** at `docs/replay-pipeline.md`; `CONTEXT.md` glossary-only for domain language.
+- Issue #10 training data gitignore — resolved: ignore entire `data/`; default **training data root** path remains `data/replays/`.
+- Issue #10 `.env.example` — resolved: `FIREBASE_DATABASE_URL` + `PORTFOLIO_SITE_ROOT` with stage comments; `.env` gitignored at repo root.
+- Issue #10 ingest skip-reason table — resolved: full table in **Replay pipeline documentation** (code, trigger, web coarse mapping); not in `CONTEXT.md`.
+- Issue #10 portfolio-site cross-links — resolved: sibling/`PORTFOLIO_SITE_ROOT` path primary, GitHub URL fallback (CONTRACT, CONTEXT, ADRs).
+- Issue #10 README discoverability — resolved: short **Replay training pipeline** section in root `README.md` linking **Replay pipeline documentation** and this glossary.
+- Issue #10 Phase A doc scope — resolved: full stage map stub + ingest detail only; #11 called out in table, not full release checklist.
+- Issue #10 eval artifacts vs git — resolved: **eval suite artifact** and **eval config artifact** are **frozen on disk** under gitignored `data/`, not git-committed.
+- Issue #10 version strictness doc — resolved: **Intentional strictness** subsection under ingest in **Replay pipeline documentation**.
 - Issue #4 Node handoff — resolved: one Node process per match; JSON row array on stdout; Python owns Parquet + `meta.json`.
 - Issue #4 `meta.json` — resolved: `match_id`, **dataset encoding version**, `row_count`, `built_at` (no raw content-hash in v1).
 - portfolio-site `database.rules.json` is fully open today; **RTDB ingest access** may need Admin SDK or auth when rules tighten.
+- Issue #11 semver vs portfolio `latest` — resolved: every promote syncs **promoted version** semver dir and refreshes **web deployed latest**; default `modelId: 'latest'` unchanged.
+- Issue #11 sync UX — resolved: single `sync-dungeon-runner-model.mjs <promoted version>` performs semver + **web deployed latest** + catalog (no separate latest step).
+- Issue #11 H5 source — resolved: **TF.js model sync** prefers local `DUNGEON_RUNNER_ROOT` sibling checkout, falls back to git clone.
+- Issue #11 version argument — resolved: checklist uses explicit **promoted version**; optional `--from-latest` for convenience after a fresh promote.
+- Issue #11 `sync --all` — resolved: **TF.js sync backfill** converts all semver dirs; **web deployed latest** updated once from **production latest**, not per directory in loop order.
+- Issue #11 old semver single-id sync — resolved: writes semver TF.js only unless id matches **production latest** (then also refreshes **web deployed latest**).
+- Issue #11 promote validation — resolved: explicit `sync <id>` fails without **promotion manifest** ledger entry; `--from-latest` and **TF.js sync backfill** exempt.
+- Issue #11 checklist location — resolved: **two-repo model release** split per **Two-repo model release** (dungeon-runner publish + link; portfolio-site sync/smoke/catalog).
+- Issue #11 repo split — resolved: **portfolio-site release issue** + feature branch for portfolio code/docs/tests; dungeon-runner #11 for glossary, pipeline publish section, cross-link (no Python sync implementation in dungeon-runner).
+- Issue #11 portfolio timing — resolved: **portfolio-site release issue** can proceed in parallel with #8; E2E promote → sync after first real **gated promotion**.
+- Issue #11 cross-repo links — resolved: [portfolio-site #128](https://github.com/enmaku/portfolio-site/issues/128) umbrella + [#127](https://github.com/enmaku/portfolio-site/issues/127) (sync) ↔ dungeon-runner #1/#8/#9/#11; **Replay pipeline documentation** release section links portfolio coordination when #11 doc slice ships.
+- Issue #11 acceptance edits — resolved: dungeon-runner #11 PRD + [portfolio-site #127](https://github.com/enmaku/portfolio-site/issues/127) (2026-05-19).
+- Issue #11 smoke scope — resolved: **release smoke** = manual browser play + optional Node artifact guard; no required headless WebGL script in v1.
+- Issue #11 semver immutability — resolved: **deployed model version** dirs append-only on promote; same-id overwrite only for backfill/converter fix; **web deployed latest** is the moving alias.

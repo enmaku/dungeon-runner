@@ -103,3 +103,4 @@ Thumbs.db
 # Cursor
 .cursor/
 .tmp*.md
+.github-issue-bodies*
