@@ -1,0 +1,212 @@
+"""BC-anchored PPO training loop for replay pipeline stage."""
+
+from __future__ import annotations
+
+import random
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras
+
+from dungeon_runner.replay.bc.human_rows import load_human_rows
+from dungeon_runner.replay.eval.derived_store import ParquetDerivedRow
+from dungeon_runner.replay.ppo.bc_anchor import anchor_ce_loss, anchor_kl_loss
+from dungeon_runner.replay.ppo.frozen_teacher import FrozenBCTeacher
+from dungeon_runner.replay.ppo.ray_collect import collect_rollouts
+from dungeon_runner.replay.ppo.rollout_collector import collect_rollouts_local
+from dungeon_runner.replay.ppo.template_sampler import TEMPLATE_BC_BOT
+from dungeon_runner.rl.model import PolicyValueModel
+from dungeon_runner.rl.ppo import PPOConfig, compute_gae, ppo_minibatch_update
+
+PPO_MAX_UPDATES = 32
+PPO_ROLLOUT_STEPS = 256
+PPO_SEED = 17
+PPO_ANCHOR_LR = 3e-4
+
+
+@dataclass(frozen=True)
+class PPOTrainResult:
+    ppo_loss: float
+    bc_anchor_ce: float
+    bc_anchor_kl: float | None
+
+
+def _apply_anchor_step(
+    model: PolicyValueModel,
+    rows: list[ParquetDerivedRow],
+    *,
+    lam: float,
+    teacher: PolicyValueModel | None,
+    beta: float,
+    opt: keras.optimizers.Optimizer,
+) -> tuple[float, float | None]:
+    ce = anchor_ce_loss(model, rows) if lam > 0 and rows else 0.0
+    kl_val: float | None = None
+    if beta > 0 and teacher is not None and rows:
+        kl_val = anchor_kl_loss(model, teacher, rows, beta=beta)
+    total = lam * ce + (kl_val or 0.0)
+    if total <= 0:
+        return ce, kl_val
+    with tf.GradientTape() as tape:
+        obs = np.stack([np.asarray(r.obs, np.float32) for r in rows], axis=0)
+        masks = np.stack([np.asarray(r.mask, np.float32) for r in rows], axis=0)
+        labels = np.array([int(r.policy_action_index) for r in rows], dtype=np.int32)
+        logits, _ = model(
+            tf.convert_to_tensor(obs, tf.float32),
+            tf.convert_to_tensor(masks, tf.float32),
+            training=True,
+        )
+        ce_t = tf.reduce_mean(
+            tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels, logits=logits)
+        )
+        loss = lam * ce_t
+        if beta > 0 and teacher is not None:
+            t_logits, _ = teacher(
+                tf.convert_to_tensor(obs, tf.float32),
+                tf.convert_to_tensor(masks, tf.float32),
+                training=False,
+            )
+            s_log = tf.nn.log_softmax(logits, axis=-1)
+            t_log = tf.nn.log_softmax(t_logits, axis=-1)
+            kl = tf.reduce_sum(tf.exp(t_log) * (t_log - s_log), axis=-1)
+            loss = loss + beta * tf.reduce_mean(kl)
+    grads = tape.gradient(loss, model.trainable_variables)
+    pairs = [(g, v) for g, v in zip(grads, model.trainable_variables) if g is not None]
+    if pairs:
+        opt.apply_gradients(pairs)  # type: ignore[no-untyped-call, misc]
+    return float(ce), kl_val
+
+
+def _ppo_update_from_batch(
+    model: PolicyValueModel,
+    opt: keras.optimizers.Optimizer,
+    cfg: PPOConfig,
+    batch,
+    pyr: random.Random,
+) -> float:
+    n = min(
+        len(batch.obs),
+        len(batch.reward),
+        len(batch.act),
+        len(batch.value),
+        len(batch.logp),
+        len(batch.done),
+    )
+    if n < 3:
+        return 0.0
+    o = np.stack(batch.obs[:n], 0)
+    m = np.stack(batch.mask[:n], 0)
+    actions = np.asarray(batch.act[:n], np.int32)
+    values = np.asarray(batch.value[:n], np.float32)
+    logp = np.asarray(batch.logp[:n], np.float32)
+    rewards = np.asarray(batch.reward[:n], np.float32)
+    dones = np.asarray(batch.done[:n], bool)
+    _, last_v = model(
+        tf.convert_to_tensor(o[-1:, :], tf.float32),
+        tf.convert_to_tensor(m[-1:, :], tf.float32),
+    )
+    last_val = float(last_v[0, 0].numpy())
+    adv, rets = compute_gae(rewards, values, dones, last_val, cfg.gamma, cfg.gae_lambda)
+    idx = np.arange(n)
+    losses: list[float] = []
+    for _ in range(cfg.n_epochs):
+        pyr.shuffle(idx)
+        for start in range(0, n, cfg.minibatch_size):
+            sl = idx[start : start + cfg.minibatch_size]
+            if sl.size == 0:
+                continue
+            stats = ppo_minibatch_update(
+                model,
+                opt,
+                cfg,
+                o[sl],
+                m[sl],
+                actions[sl],
+                logp[sl],
+                values[sl],
+                adv[sl],
+                rets[sl],
+            )
+            losses.append(float(stats["loss"]))
+    return float(np.mean(losses)) if losses else 0.0
+
+
+def _log_template_scalar(tb_dir: Path, template: str, stats, step: int) -> None:
+    writer = tf.summary.create_file_writer(str(tb_dir))
+    suffix = template.replace("_", "-")
+    with writer.as_default():
+        tf.summary.scalar(f"rollout/{suffix}/episodes", float(stats.n_episodes), step=step)
+        tf.summary.scalar(f"rollout/{suffix}/env_steps", float(stats.env_steps), step=step)
+
+
+def train_ppo(
+    model: PolicyValueModel,
+    teacher: FrozenBCTeacher,
+    train_rows: list[ParquetDerivedRow],
+    *,
+    tb_dir: Path,
+    bc_anchor_lambda: float = 0.1,
+    bc_anchor_beta: float = 0.0,
+    use_ray: bool = True,
+    ray_workers: int = 8,
+    max_updates: int = PPO_MAX_UPDATES,
+    rollout_steps: int = PPO_ROLLOUT_STEPS,
+) -> PPOTrainResult:
+    pyr = random.Random(PPO_SEED)
+    opt = keras.optimizers.Adam(PPO_ANCHOR_LR)
+    cfg = PPOConfig()
+    teacher_model = teacher._model  # noqa: SLF001
+    ppo_losses: list[float] = []
+    anchor_ce_vals: list[float] = []
+    anchor_kl_vals: list[float] = []
+
+    def local_collect():
+        batch, stats, template = collect_rollouts_local(
+            model, teacher, target_steps=rollout_steps, seed=PPO_SEED
+        )
+        return batch, stats, template
+
+    def ray_collect(workers: int):
+        del workers
+        return local_collect()
+
+    for step in range(max_updates):
+        batch, stats, template = collect_rollouts(
+            use_ray=use_ray,
+            ray_workers=ray_workers,
+            local_fn=local_collect,
+            ray_fn=ray_collect,
+        )
+        loss = _ppo_update_from_batch(model, opt, cfg, batch, pyr)
+        if loss > 0:
+            ppo_losses.append(loss)
+        ce, kl = _apply_anchor_step(
+            model,
+            train_rows,
+            lam=bc_anchor_lambda,
+            teacher=teacher_model if bc_anchor_beta > 0 else None,
+            beta=bc_anchor_beta,
+            opt=opt,
+        )
+        if bc_anchor_lambda > 0:
+            anchor_ce_vals.append(ce)
+        if bc_anchor_beta > 0 and kl is not None:
+            anchor_kl_vals.append(kl)
+        _log_template_scalar(tb_dir, template or TEMPLATE_BC_BOT, stats, step)
+        writer = tf.summary.create_file_writer(str(tb_dir))
+        with writer.as_default():
+            tf.summary.scalar("train/ppo_loss", loss, step=step)
+            if bc_anchor_lambda > 0:
+                tf.summary.scalar("train/bc_anchor_ce", ce, step=step)
+            if bc_anchor_beta > 0 and kl is not None:
+                tf.summary.scalar("train/bc_anchor_kl", kl, step=step)
+
+    return PPOTrainResult(
+        ppo_loss=float(np.mean(ppo_losses)) if ppo_losses else 0.0,
+        bc_anchor_ce=float(np.mean(anchor_ce_vals)) if anchor_ce_vals else 0.0,
+        bc_anchor_kl=(
+            float(np.mean(anchor_kl_vals)) if anchor_kl_vals else None
+        ),
+    )

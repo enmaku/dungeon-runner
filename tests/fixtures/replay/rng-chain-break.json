@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "seed": 42,
+  "setup": {
+    "totalSeats": 2,
+    "opponents": [{ "type": "randombot" }]
+  },
+  "history": [
+    {
+      "action": { "type": "PASS" },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 0,
+      "rngStepAfter": 1
+    },
+    {
+      "action": { "type": "PASS" },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 99,
+      "rngStepAfter": 100
+    }
+  ]
+}

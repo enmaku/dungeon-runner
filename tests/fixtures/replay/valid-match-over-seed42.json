@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "createdAt": "2026-05-19T11:19:48.634Z",
+  "seed": 42,
+  "setup": {
+    "totalSeats": 2,
+    "opponents": [
+      {
+        "type": "randombot"
+      }
+    ]
+  },
+  "history": [
+    {
+      "action": {
+        "type": "PASS"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 0,
+      "rngStepAfter": 1
+    },
+    {
+      "action": {
+        "type": "CHOOSE_NEXT_ADVENTURER",
+        "hero": "WARRIOR"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 1,
+      "rngStepAfter": 14
+    },
+    {
+      "action": {
+        "type": "PASS"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 14,
+      "rngStepAfter": 15
+    },
+    {
+      "action": {
+        "type": "CHOOSE_NEXT_ADVENTURER",
+        "hero": "WARRIOR"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 15,
+      "rngStepAfter": 28
+    },
+    {
+      "action": {
+        "type": "PASS"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 28,
+      "rngStepAfter": 29
+    }
+  ]
+}
