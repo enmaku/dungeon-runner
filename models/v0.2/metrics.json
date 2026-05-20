@@ -1,0 +1,19 @@
+{
+  "run_id": "bc-20260519T225504Z",
+  "timestamp": "2026-05-19T22:55:26.919776+00:00",
+  "parent_weights": "/Users/enmaku/code/dungeon-runner/models/v0.1.30a/policy.weights.h5",
+  "replay": {
+    "val_masked_accuracy": 0.8913043478260869,
+    "disagreement_rate": 0.021739130434782608,
+    "val_row_count": 138
+  },
+  "sim": {
+    "candidate_win_rate_vs_randombot": 0.9375,
+    "latest_win_rate_vs_randombot": 0.9375,
+    "engine": "python_training_sim",
+    "seed_count": 16
+  },
+  "train": {
+    "bc_loss": 1.4282069206237793
+  }
+}

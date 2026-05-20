@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "createdAt": "2026-05-19T22:02:13.938Z",
+  "seed": 4242,
+  "setup": {
+    "totalSeats": 3,
+    "opponents": [
+      {
+        "type": "randombot"
+      },
+      {
+        "type": "nn",
+        "modelId": "latest"
+      }
+    ]
+  },
+  "history": [
+    {
+      "action": {
+        "type": "CHOOSE_NEXT_ADVENTURER",
+        "hero": "WARRIOR"
+      },
+      "actorSeatId": "seat-3",
+      "rngStepBefore": 0,
+      "rngStepAfter": 13
+    }
+  ]
+}

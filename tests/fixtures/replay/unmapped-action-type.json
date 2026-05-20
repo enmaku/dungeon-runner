@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "seed": 42,
+  "setup": {
+    "totalSeats": 2,
+    "opponents": [
+      {
+        "type": "randombot"
+      }
+    ]
+  },
+  "history": [
+    {
+      "action": {
+        "type": "NOT_A_REAL_ACTION_TYPE"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 0,
+      "rngStepAfter": 1
+    }
+  ]
+}

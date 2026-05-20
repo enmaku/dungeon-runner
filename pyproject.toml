@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Welcome to the Dungeon game logic"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["python-dotenv>=1.0.0", "pyarrow>=14.0.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
@@ -18,6 +18,7 @@ train = [
     "gymnasium>=0.29.0",
     "pettingzoo>=1.24.0",
     "numpy>=1.23.0",
+    "packaging>=24.0",
     "setuptools>=61.0,<82",
     "tensorboard>=2.15.0",
     "ray[rllib]>=2.10.0,<2.60.0",

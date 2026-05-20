@@ -1,0 +1,7 @@
+{
+  "promoted_version": "v0.2.01",
+  "run_id": "ppo-20260519T231414Z",
+  "parent_weights": "/Users/enmaku/code/dungeon-runner/models/runs/bc-20260519T231354Z/policy.weights.h5",
+  "promoted_at": "2026-05-19T23:15:08.830354+00:00",
+  "metrics_file": "metrics.json"
+}

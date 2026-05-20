@@ -13,8 +13,13 @@ A Python implementation of [*Welcome to the Dungeon*](https://iellogames.com/gam
 | Table UI | `src/dungeon_runner/ui/pygame_view.py` (used by the play script, not by training) |
 | Scripts | `scripts/train.py` (PPO vs bot), `scripts/train_rllib.py` (PPO, Ray-parallel self-play, same Keras loop), `scripts/oscillate_train.py` (alternate those two; each run uses `logdir/1/`, `2/`, … only), `scripts/play_random_game.py` |
 | Rules reference (physical-game parity) | [`docs/welcome-to-the-dungeon.md`](docs/welcome-to-the-dungeon.md) |
+| Human replay training pipeline | [`docs/replay-pipeline.md`](docs/replay-pipeline.md) — staged CLI (`ingest`, `verify`, …); glossary in [`CONTEXT.md`](CONTEXT.md) |
 
 Tests live under `tests/`. The package is installable with **`pip install -e .`** ([`pyproject.toml`](pyproject.toml)); optional groups are `dev` (pytest), `gui` (pygame), `train` (TensorFlow, PettingZoo, Ray, etc.). A thin [`requirements.txt`](requirements.txt) installs the editable package plus pytest for a minimal dev setup.
+
+## Replay training pipeline
+
+Human **completed match replays** from portfolio-site are ingested, verified against the **web game engine**, turned into Parquet **derived training rows**, and used for BC/PPO training with optional **gated promotion** of weights under `models/`. Maintainer runbook: [`docs/replay-pipeline.md`](docs/replay-pipeline.md) (staged CLI, env vars, manifests, on-disk layout). Domain terms: [`CONTEXT.md`](CONTEXT.md). Copy [`.env.example`](.env.example) to `.env` and set `FIREBASE_DATABASE_URL` (ingest) and `PORTFOLIO_SITE_ROOT` (verify/dataset).
 
 ## Rules and behavior
 

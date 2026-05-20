@@ -26,8 +26,10 @@ if _SRC.is_dir() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from dungeon_runner.pettingzoo_aec import WtdAECEnv
+from dungeon_runner.replay.ppo.ray_workers import per_worker_rollout_target
 from dungeon_runner.rl import rllib_keras_module as rkm
 from dungeon_runner.rl.ppo import PPOConfig, RolloutBatch, RolloutGameStats, compute_gae, ppo_minibatch_update
+from dungeon_runner.rl.ray_local import init_ray_local_cluster
 
 try:
     import ray
@@ -89,13 +91,6 @@ def _log_game_scalars_rl(step: int, g: RolloutGameStats, mean_r: float) -> None:
         tf.summary.scalar("game/truncation_rate", float(g.n_truncated) / float(ne), step=step)
 
 
-def _per_worker_rollout(rollout_total: int, n_workers: int, index: int) -> int:
-    if n_workers <= 0 or rollout_total <= 0:
-        return max(1, rollout_total)
-    base, rem = divmod(rollout_total, n_workers)
-    return base + (1 if index < rem else 0)
-
-
 def _merge_worker_payloads(
     arrs: list[tuple[dict, dict]],
 ) -> tuple[RolloutBatch, RolloutGameStats]:
@@ -146,9 +141,7 @@ def main() -> None:
     tf.random.set_seed(args.seed)
     np_r = np.random.default_rng(args.seed)
     pyr = random.Random(args.seed)
-    # Quiets Ray 2.5+ FutureWarning about CUDA visible devices when num_gpus=0.
-    os.environ.setdefault("RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO", "0")
-    ray.init(ignore_reinit_error=True, include_dashboard=False)  # type: ignore[union-attr, misc, attr-defined]
+    init_ray_local_cluster()
     cfg = PPOConfig()
     model = rkm.build_policy_value_model()
     if wpath.is_file():
@@ -166,7 +159,9 @@ def main() -> None:
     for u in range(args.updates):
         w_np = rkm.model_weights_to_numpy(model)
         ray.get([a.set_keras_weights.remote(w_np) for a in actors])  # type: ignore[attr-defined]
-        targets = [_per_worker_rollout(args.rollout, n_workers, i) for i in range(n_workers)]
+        targets = [
+            per_worker_rollout_target(args.rollout, n_workers, i) for i in range(n_workers)
+        ]
         futs = [
             a.collect.remote(targets[i], u)  # type: ignore[attr-defined]
             for i, a in enumerate(actors)

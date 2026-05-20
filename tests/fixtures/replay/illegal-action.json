@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "seed": 42,
+  "setup": {
+    "totalSeats": 2,
+    "opponents": [{ "type": "randombot" }]
+  },
+  "history": [
+    {
+      "action": {
+        "type": "CHOOSE_NEXT_ADVENTURER",
+        "hero": "WARRIOR"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 0,
+      "rngStepAfter": 13
+    },
+    {
+      "action": {
+        "type": "DECLARE_VORPAL",
+        "species": "goblin"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 13,
+      "rngStepAfter": 14
+    }
+  ]
+}

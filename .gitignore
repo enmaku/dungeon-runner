@@ -30,8 +30,12 @@ pip-wheel-metadata/
 venv/
 ENV/
 env/
+.env
 .env.local
 .env.*.local
+
+# Replay training pipeline (raw replays, manifests, derived)
+data/
 
 # Installer logs
 pip-log.txt
@@ -102,3 +106,5 @@ Thumbs.db
 
 # Cursor
 .cursor/
+.tmp*.md
+.github-issue-bodies*

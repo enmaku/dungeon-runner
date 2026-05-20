@@ -1,0 +1,428 @@
+{
+  "version": 1,
+  "createdAt": "2026-05-19T22:00:57.913Z",
+  "seed": 42,
+  "setup": {
+    "totalSeats": 2,
+    "opponents": [
+      {
+        "type": "randombot"
+      }
+    ]
+  },
+  "history": [
+    {
+      "action": {
+        "type": "CHOOSE_NEXT_ADVENTURER",
+        "hero": "WARRIOR"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 0,
+      "rngStepAfter": 13
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 13,
+      "rngStepAfter": 14
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 14,
+      "rngStepAfter": 15
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 15,
+      "rngStepAfter": 16
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 16,
+      "rngStepAfter": 17
+    },
+    {
+      "action": {
+        "type": "PASS"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 17,
+      "rngStepAfter": 18
+    },
+    {
+      "action": {
+        "type": "DECLARE_VORPAL",
+        "species": "goblin"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 18,
+      "rngStepAfter": 19
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 19,
+      "rngStepAfter": 20
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 20,
+      "rngStepAfter": 21
+    },
+    {
+      "action": {
+        "type": "CHOOSE_NEXT_ADVENTURER",
+        "hero": "ROGUE"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 21,
+      "rngStepAfter": 34
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 34,
+      "rngStepAfter": 35
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 35,
+      "rngStepAfter": 36
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 36,
+      "rngStepAfter": 37
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 37,
+      "rngStepAfter": 38
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 38,
+      "rngStepAfter": 39
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 39,
+      "rngStepAfter": 40
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 40,
+      "rngStepAfter": 41
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 41,
+      "rngStepAfter": 42
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 42,
+      "rngStepAfter": 43
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 43,
+      "rngStepAfter": 44
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 44,
+      "rngStepAfter": 45
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 45,
+      "rngStepAfter": 46
+    },
+    {
+      "action": {
+        "type": "PASS"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 46,
+      "rngStepAfter": 47
+    },
+    {
+      "action": {
+        "type": "DECLARE_VORPAL",
+        "species": "skeleton"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 47,
+      "rngStepAfter": 48
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 48,
+      "rngStepAfter": 49
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 49,
+      "rngStepAfter": 50
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 50,
+      "rngStepAfter": 51
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 51,
+      "rngStepAfter": 52
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 52,
+      "rngStepAfter": 53
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 53,
+      "rngStepAfter": 54
+    },
+    {
+      "action": {
+        "type": "CHOOSE_NEXT_ADVENTURER",
+        "hero": "BARBARIAN"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 54,
+      "rngStepAfter": 67
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 67,
+      "rngStepAfter": 68
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 68,
+      "rngStepAfter": 69
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 69,
+      "rngStepAfter": 70
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 70,
+      "rngStepAfter": 71
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 71,
+      "rngStepAfter": 72
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 72,
+      "rngStepAfter": 73
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 73,
+      "rngStepAfter": 74
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 74,
+      "rngStepAfter": 75
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 75,
+      "rngStepAfter": 76
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 76,
+      "rngStepAfter": 77
+    },
+    {
+      "action": {
+        "type": "DRAW"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 77,
+      "rngStepAfter": 78
+    },
+    {
+      "action": {
+        "type": "ADD_TO_DUNGEON"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 78,
+      "rngStepAfter": 79
+    },
+    {
+      "action": {
+        "type": "PASS"
+      },
+      "actorSeatId": "seat-2",
+      "rngStepBefore": 79,
+      "rngStepAfter": 80
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 80,
+      "rngStepAfter": 81
+    },
+    {
+      "action": {
+        "type": "USE_FIRE_AXE"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 81,
+      "rngStepAfter": 82
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 82,
+      "rngStepAfter": 83
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 83,
+      "rngStepAfter": 84
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 84,
+      "rngStepAfter": 85
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 85,
+      "rngStepAfter": 86
+    },
+    {
+      "action": {
+        "type": "REVEAL_OR_CONTINUE"
+      },
+      "actorSeatId": "seat-1",
+      "rngStepBefore": 86,
+      "rngStepAfter": 87
+    }
+  ]
+}
