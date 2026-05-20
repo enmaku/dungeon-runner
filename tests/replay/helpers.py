@@ -31,23 +31,9 @@ def load_fixture(name: str) -> dict:
 
 
 def golden_kernel_envelope(portfolio_root: Path) -> dict:
-    """v1 envelope built from portfolio-site kernel golden fixture history."""
-    path = portfolio_root / GOLDEN_KERNEL_FIXTURE
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return {
-        "version": 1,
-        "seed": data["seed"],
-        "setup": data["setup"],
-        "history": [
-            {
-                "action": entry["action"],
-                "actorSeatId": entry["actorSeatId"],
-                "rngStepBefore": entry["rngStepBefore"],
-                "rngStepAfter": entry["rngStepAfter"],
-            }
-            for entry in data["expected"]["history"]
-        ],
-    }
+    """Truncated v1 envelope (seed 4242) compatible with live-match bootstrap."""
+    _ = portfolio_root  # golden still lives under portfolio-site for kernel tests
+    return load_fixture("golden-bootstrap-truncated-4242.json")
 
 
 def seed_ingested(data_dir: Path, match_id: str, fixture_name: str) -> None:

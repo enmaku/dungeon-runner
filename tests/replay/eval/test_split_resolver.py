@@ -12,7 +12,11 @@ from dungeon_runner.replay.eval.eval_suite import (
     init_eval_suite,
     require_eval_suite,
 )
-from dungeon_runner.replay.eval.split_resolver import split_for, split_for_match_id
+from dungeon_runner.replay.eval.split_resolver import (
+    require_split_for,
+    split_for,
+    split_for_match_id,
+)
 from tests.replay.helpers import seed_verify_state
 
 
@@ -55,3 +59,8 @@ def test_split_for_match_id_loads_artifact(tmp_path: Path, frozen_suite: EvalSui
 
 def test_require_eval_suite(tmp_path: Path, frozen_suite: EvalSuiteArtifact):
     assert require_eval_suite(tmp_path) == frozen_suite
+
+
+def test_require_split_for_raises_when_suite_none():
+    with pytest.raises(EvalSuiteError, match="eval suite artifact is required"):
+        require_split_for("match-a", None)

@@ -1,0 +1,25 @@
+{
+  "run_id": "ppo-20260519T231414Z",
+  "timestamp": "2026-05-19T23:15:04.369683+00:00",
+  "parent_weights": "/Users/enmaku/code/dungeon-runner/models/runs/bc-20260519T231354Z/policy.weights.h5",
+  "replay": {
+    "val_masked_accuracy": 0.8913043478260869,
+    "disagreement_rate": 0.0,
+    "val_row_count": 138
+  },
+  "sim": {
+    "candidate_win_rate_vs_randombot": 1.0,
+    "latest_win_rate_vs_randombot": 1.0,
+    "engine": "python_training_sim",
+    "seed_count": 16
+  },
+  "train": {
+    "ppo_loss": 0.9992050806176849,
+    "bc_anchor_ce": 1.1625991463661194,
+    "bc_anchor_kl": 0.00272886374295922
+  },
+  "ppo_bc_regression": {
+    "pass": true,
+    "bc_run_id": "bc-20260519T231354Z"
+  }
+}

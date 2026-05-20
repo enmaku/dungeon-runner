@@ -27,7 +27,8 @@ from dungeon_runner.replay.ppo.prerequisites import (
     check_ppo_prerequisites,
 )
 from dungeon_runner.replay.ppo.regression import check_ppo_bc_regression
-from dungeon_runner.replay.ppo.trainer import PPOTrainResult, train_ppo
+from dungeon_runner.replay.ppo.trainer import PPO_MAX_UPDATES, PPO_ROLLOUT_STEPS, PPOTrainResult, train_ppo
+from dungeon_runner.replay import progress
 from dungeon_runner.rl.model import PolicyValueModel
 
 TrainPPOFn = Callable[..., PPOTrainResult]
@@ -60,6 +61,7 @@ def run_ppo(
     run_id: str | None = None,
     bc_anchor_lambda: float = 0.1,
     bc_anchor_beta: float = 0.0,
+    max_updates: int = PPO_MAX_UPDATES,
     use_ray: bool = True,
     ray_workers: int = 8,
     gate_preview: bool = True,
@@ -101,6 +103,13 @@ def run_ppo(
     tb_dir.mkdir(parents=True, exist_ok=True)
     weights_path = staging / "policy.weights.h5"
 
+    rollout_mode = f"Ray ({ray_workers} workers)" if use_ray else "single-process"
+    progress.log(
+        f"PPO {run_id}: init from {prereq.bc_weights}, "
+        f"{max_updates} updates × {PPO_ROLLOUT_STEPS} rollout steps, {rollout_mode}"
+    )
+    progress.log_tensorboard(tb_dir, run_label=run_id)
+
     try:
         model = load_model(prereq.bc_weights)
         teacher = FrozenBCTeacher.from_weights(prereq.bc_weights, load_model=load_model)
@@ -109,14 +118,30 @@ def run_ppo(
             model,
             teacher,
             train_rows,
+            val_rows=val_rows,
             tb_dir=tb_dir,
             teacher_weights=prereq.bc_weights,
             bc_anchor_lambda=bc_anchor_lambda,
             bc_anchor_beta=bc_anchor_beta,
+            max_updates=max_updates,
             use_ray=use_ray,
             ray_workers=ray_workers,
+            on_update_end=lambda step, loss: progress.log(
+                f"  update {step + 1}/{max_updates}: ppo_loss={loss:.4f}"
+            ),
         )
+        finish = (
+            f"  training finished: mean ppo_loss={train_result.ppo_loss:.4f}, "
+            f"bc_anchor_ce={train_result.bc_anchor_ce:.4f}"
+        )
+        best_val = getattr(train_result, "best_val_masked_accuracy", None)
+        best_update = getattr(train_result, "best_update", 0)
+        if best_val is not None:
+            finish += f", best val accuracy={best_val:.4f} @ update {best_update}"
+        progress.log(finish)
         model.save_weights(str(weights_path))
+
+        progress.log("  replay + sim eval + BC regression check…")
 
         latest_weights = repo_root / "models" / "latest" / "policy.weights.h5"
         latest_model = load_model(latest_weights) if latest_weights.is_file() else model

@@ -76,3 +76,25 @@ def test_ppo_run_passes_with_regression_flag():
         promoted_run_ids=set(),
     )
     assert result.passed
+
+
+def test_replay_below_floor_reason():
+    result = run_publish_gates(
+        _metrics(val_acc=0.5),
+        _config(floor=0.75),
+        run_id="bc-20260518T120000Z",
+        promoted_run_ids=set(),
+    )
+    assert not result.passed
+    assert "replay_below_floor" in result.reasons
+
+
+def test_sim_regression_reason():
+    result = run_publish_gates(
+        _metrics(cand_wr=0.5, latest_wr=0.55),
+        _config(),
+        run_id="bc-20260518T120000Z",
+        promoted_run_ids=set(),
+    )
+    assert not result.passed
+    assert "sim_regression" in result.reasons

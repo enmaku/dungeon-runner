@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from dungeon_runner.replay.verify import _VerifyOutcome, run_verify
-from dungeon_runner.replay.verify_manifest import load_verify_manifest
 from dungeon_runner.replay.web_engine import default_harness_path
 
 from tests.replay.helpers import seed_ingested

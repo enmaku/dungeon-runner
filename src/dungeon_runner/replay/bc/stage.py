@@ -26,6 +26,7 @@ from dungeon_runner.replay.eval.gate_evaluator import evaluate_gates
 from dungeon_runner.replay.eval.metrics_writer import write_metrics
 from dungeon_runner.replay.eval.replay_metrics import replay_metrics
 from dungeon_runner.replay.eval.sim_metrics import SimMetrics, sim_metrics
+from dungeon_runner.replay import progress
 from dungeon_runner.rl.model import PolicyValueModel
 
 LoadModelFn = Callable[[Path], PolicyValueModel]
@@ -87,16 +88,33 @@ def run_bc(
     tb_dir.mkdir(parents=True, exist_ok=True)
     weights_path = staging / "policy.weights.h5"
 
+    progress.log(
+        f"BC {run_id}: {len(train_rows)} train rows, {len(val_rows)} val rows, "
+        f"parent={prereq.parent_weights}"
+    )
+    progress.log_tensorboard(tb_dir, run_label=run_id)
+
+    def _on_epoch_end(epoch: int, val_acc: float) -> None:
+        progress.log(f"  epoch {epoch}: val masked accuracy={val_acc:.4f}")
+
     try:
         model = load_model(prereq.parent_weights)
-        train_bc_fn(
+        train_result = train_bc_fn(
             model,
             train_rows,
             val_rows,
             tb_dir=tb_dir,
             max_epochs=100,
+            on_epoch_end=_on_epoch_end,
+        )
+        progress.log(
+            f"  training finished: {train_result.history.epochs} epoch(s), "
+            f"best val accuracy={train_result.history.best_val_masked_accuracy:.4f} "
+            f"@ epoch {train_result.history.best_epoch}"
         )
         model.save_weights(str(weights_path))
+
+        progress.log("  replay + sim eval…")
 
         latest_model = load_model(prereq.parent_weights)
         candidate_predict = make_replay_predict(model)
@@ -143,12 +161,13 @@ def run_bc(
         gate_passed: bool | None = None
         gate_reasons: list[str] = []
         if gate_preview:
+            gate_eval_config = require_eval_config(data_dir)
             result = evaluate_gates(
                 {
                     "replay": replay.to_dict(),
                     "sim": sim.to_dict(),
                 },
-                eval_config,
+                gate_eval_config,
             )
             gate_passed = result.passed
             gate_reasons = list(result.reasons)

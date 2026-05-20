@@ -80,3 +80,24 @@ def test_missing_replay_metric_fails():
     result = evaluate_gates(_metrics(val_acc=None), config)
     assert not result.passed
     assert "missing_replay_val_masked_accuracy" in result.reasons
+
+
+def test_missing_sim_win_rates_fails():
+    config = _ConfigFactory(floor=0.5).build()
+    result = evaluate_gates(_metrics(val_acc=0.9, cand_wr=None, latest_wr=None), config)
+    assert not result.passed
+    assert "missing_sim_win_rates" in result.reasons
+
+
+def test_replay_at_floor_passes():
+    config = _ConfigFactory(floor=0.8).build()
+    result = evaluate_gates(_metrics(val_acc=0.8, cand_wr=0.6, latest_wr=0.55), config)
+    assert result.passed
+
+
+def test_multiple_gate_failures_reported():
+    config = _ConfigFactory(floor=0.9, tolerance=0.01).build()
+    result = evaluate_gates(_metrics(val_acc=0.5, cand_wr=0.4, latest_wr=0.6), config)
+    assert not result.passed
+    assert "replay_below_floor" in result.reasons
+    assert "sim_regression" in result.reasons

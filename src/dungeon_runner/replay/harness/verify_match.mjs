@@ -32,7 +32,10 @@ async function loadEngine() {
   const base = featureRoot()
   const kernel = await import(pathToFileURL(join(base, 'engine/kernel.js')).href)
   const policy = await import(pathToFileURL(join(base, 'nn/policyAdapter.js')).href)
-  return { kernel, policy }
+  const replayBootstrap = await import(
+    pathToFileURL(join(base, 'debug/replayBootstrap.js')).href,
+  )
+  return { kernel, policy, replayBootstrap }
 }
 
 function main() {
@@ -49,13 +52,14 @@ function main() {
   }
 
   loadEngine()
-    .then(({ kernel, policy }) => {
-      const { createInitialMatchState, applyAction, MATCH_PHASES } = kernel
+    .then(({ kernel, policy, replayBootstrap }) => {
+      const { applyAction, MATCH_PHASES } = kernel
       const { encodeActionIndex } = policy
+      const { bootstrapMatchStateForReplay } = replayBootstrap
 
       let state
       try {
-        state = createInitialMatchState(envelope.setup, { seed: envelope.seed })
+        state = bootstrapMatchStateForReplay(envelope.setup, envelope.seed)
       } catch (err) {
         fail('engine_error', undefined, err.message)
       }

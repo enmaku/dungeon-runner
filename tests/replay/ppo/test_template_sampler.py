@@ -8,8 +8,13 @@ from dungeon_runner.replay.ppo.template_sampler import (
     TEMPLATE_BC_BOT,
     TEMPLATE_SELF_PLAY,
     TEMPLATE_VS_RANDOMBOT,
+    _WEIGHTS,
     sample_rollout_template,
 )
+
+
+def test_default_template_mix_probabilities():
+    assert _WEIGHTS == (0.20, 0.45, 0.35)
 
 
 def test_sample_rollout_template_seeded_frequencies():

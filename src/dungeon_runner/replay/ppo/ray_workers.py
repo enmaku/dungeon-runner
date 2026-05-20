@@ -48,6 +48,7 @@ if ray is not None:
                 sample_episode_config,
             )
 
+            self._fill_rollout = fill_rollout
             self._worker_id = worker_id
             self._base = int(base_seed) + worker_id * 1_000_003
             tf.random.set_seed(self._base)
@@ -79,7 +80,7 @@ if ray is not None:
             ) & 0xFFFFFFFFFFFFFFFF
             pyr = random.Random(int(mix & 0x7FFFFFFF))
             np_r = np.random.default_rng(mix)
-            batch, self._roles, stats, template = fill_rollout(
+            batch, self._roles, stats, template = self._fill_rollout(
                 self._env,
                 self._model,
                 teacher=self._teacher,

@@ -92,6 +92,107 @@ def test_run_dataset_fails_without_portfolio_root(
         run_dataset(data_dir=data_dir)
 
 
+def test_pending_dataset_ids_encode_all_includes_built(tmp_path: Path):
+    data_dir = tmp_path / "replays"
+    seed_verify_state(data_dir, verified=["match-a", "match-b"])
+    seed_ingested(data_dir, "match-a", "valid-match-over-seed42.json")
+    seed_ingested(data_dir, "match-b", "valid-match-over-seed42.json")
+    match_dir = data_dir / "derived" / "match-a"
+    match_dir.mkdir(parents=True)
+    meta = {
+        "match_id": "match-a",
+        "encoding_version": DATASET_ENCODING_VERSION,
+        "row_count": 1,
+        "built_at": "2026-05-19T12:00:00Z",
+    }
+    (match_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    (match_dir / "rows.parquet").write_bytes(b"stub")
+
+    assert pending_dataset_ids(data_dir) == ["match-b"]
+    assert pending_dataset_ids(data_dir, encode_all=True) == ["match-a", "match-b"]
+
+
+def test_pending_dataset_ids_requeues_stale_encoding_version(tmp_path: Path):
+    data_dir = tmp_path / "replays"
+    seed_verify_state(data_dir, verified=["match-a", "match-b"])
+    seed_ingested(data_dir, "match-a", "valid-match-over-seed42.json")
+    match_dir = data_dir / "derived" / "match-a"
+    match_dir.mkdir(parents=True)
+    meta = {
+        "match_id": "match-a",
+        "encoding_version": DATASET_ENCODING_VERSION - 1,
+        "row_count": 1,
+        "built_at": "2026-01-01T00:00:00Z",
+    }
+    (match_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    (match_dir / "rows.parquet").write_bytes(b"stub")
+
+    assert pending_dataset_ids(data_dir) == ["match-a"]
+
+
+def test_pending_dataset_ids_only_verified_with_raw(tmp_path: Path):
+    data_dir = tmp_path / "replays"
+    seed_verify_state(
+        data_dir,
+        ingested=["match-a", "match-b", "match-failed", "match-unverified"],
+        verified=["match-a", "match-b"],
+        failed=[{"id": "match-failed", "reason": {"code": "illegal_action", "step": 0}}],
+    )
+    seed_ingested(data_dir, "match-a", "valid-match-over-seed42.json")
+    seed_ingested(data_dir, "match-b", "valid-match-over-seed42.json")
+    seed_ingested(data_dir, "match-failed", "valid-match-over-seed42.json")
+    seed_ingested(data_dir, "match-unverified", "valid-match-over-seed42.json")
+
+    assert pending_dataset_ids(data_dir) == ["match-a", "match-b"]
+
+
+def test_manual_redataset_after_delete_derived(tmp_path: Path):
+    data_dir = tmp_path / "replays"
+    seed_verify_state(data_dir, verified=["match-a", "match-b"])
+    seed_ingested(data_dir, "match-a", "valid-match-over-seed42.json")
+    init_eval_suite(data_dir, sampling_seed=42)
+    match_dir = data_dir / "derived" / "match-a"
+    match_dir.mkdir(parents=True)
+    meta = {
+        "match_id": "match-a",
+        "encoding_version": DATASET_ENCODING_VERSION,
+        "row_count": 1,
+        "built_at": "2026-05-19T12:00:00Z",
+    }
+    (match_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    (match_dir / "rows.parquet").write_bytes(b"stub")
+
+    assert pending_dataset_ids(data_dir) == []
+
+    import shutil
+
+    shutil.rmtree(match_dir)
+    assert pending_dataset_ids(data_dir) == ["match-a"]
+
+
+def test_run_dataset_one_harness_call_per_match(tmp_path: Path):
+    data_dir = tmp_path / "replays"
+    seed_verify_state(data_dir, verified=["match-a", "match-b"])
+    init_eval_suite(data_dir, sampling_seed=42)
+    seed_ingested(data_dir, "match-a", "valid-match-over-seed42.json")
+    seed_ingested(data_dir, "match-b", "valid-match-over-seed42.json")
+
+    calls: list[str] = []
+
+    def counting_build(*, envelope_path: Path, **_kwargs: object) -> dict:
+        calls.append(envelope_path.stem)
+        return _sample_rows()
+
+    portfolio = tmp_path / "portfolio"
+    portfolio.mkdir()
+    run_dataset(
+        data_dir=data_dir,
+        portfolio_root=portfolio,
+        build_fn=counting_build,
+    )
+    assert calls == ["match-a", "match-b"]
+
+
 def test_pending_dataset_ids_skips_current_encoding_version(tmp_path: Path):
     data_dir = tmp_path / "replays"
     seed_verify_state(data_dir, verified=["match-a", "match-b"])

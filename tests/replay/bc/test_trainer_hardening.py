@@ -104,6 +104,37 @@ def test_restored_weights_match_best_val_epoch(tiny_model, human_rows):
         np.testing.assert_allclose(expected, actual)
 
 
+def test_train_bc_writes_tensorboard_event_files(tiny_model, human_rows, tmp_path: Path):
+    train_rows, val_rows = human_rows
+    tb_dir = tmp_path / "tb"
+    train_bc(
+        tiny_model,
+        train_rows,
+        val_rows,
+        tb_dir=tb_dir,
+        max_epochs=3,
+        patience=2,
+        batch_size=4,
+    )
+    events = list(tb_dir.rglob("events.out.tfevents.*"))
+    assert events, "expected TensorBoard event files under tb/"
+
+
+def test_train_bc_shuffle_seed_is_reproducible(tiny_model, human_rows):
+    train_rows, val_rows = human_rows
+
+    def first_epoch_batch_order(seed: int) -> list[int]:
+        from dungeon_runner.replay.bc.trainer import _epoch_batches
+        import random
+
+        rng = random.Random(seed)
+        batch = _epoch_batches(train_rows, batch_size=4, rng=rng)[0]
+        return [int(r.policy_action_index) for r in batch]
+
+    assert first_epoch_batch_order(BC_SHUFFLE_SEED) == first_epoch_batch_order(BC_SHUFFLE_SEED)
+    assert first_epoch_batch_order(BC_SHUFFLE_SEED + 1) != first_epoch_batch_order(BC_SHUFFLE_SEED)
+
+
 def test_masked_accuracy_matches_replay_metrics_definition(tiny_model, human_rows):
     _train_rows, val_rows = human_rows
     result = train_bc(

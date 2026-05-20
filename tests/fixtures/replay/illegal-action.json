@@ -7,16 +7,22 @@
   },
   "history": [
     {
-      "action": { "type": "PASS" },
-      "actorSeatId": "seat-1",
+      "action": {
+        "type": "CHOOSE_NEXT_ADVENTURER",
+        "hero": "WARRIOR"
+      },
+      "actorSeatId": "seat-2",
       "rngStepBefore": 0,
-      "rngStepAfter": 1
+      "rngStepAfter": 13
     },
     {
-      "action": { "type": "PASS" },
+      "action": {
+        "type": "DECLARE_VORPAL",
+        "species": "goblin"
+      },
       "actorSeatId": "seat-2",
-      "rngStepBefore": 1,
-      "rngStepAfter": 2
+      "rngStepBefore": 13,
+      "rngStepAfter": 14
     }
   ]
 }

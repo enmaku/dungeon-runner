@@ -23,6 +23,7 @@ from dungeon_runner.replay.ppo import (
 from dungeon_runner.replay.publish import PublishError, run_publish
 from dungeon_runner.replay.dataset import DatasetBuildError, run_dataset
 from dungeon_runner.replay.ingest import run_ingest
+from dungeon_runner.replay import progress
 from dungeon_runner.replay.run_all import run_all
 from dungeon_runner.replay.verify import run_verify
 
@@ -36,7 +37,11 @@ _STAGE_STUB_NOTES: dict[str, str] = {}
 def _cmd_ingest(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir)
     from_export = Path(args.from_export) if args.from_export else None
-    database_url = None if from_export else require_database_url()
+    try:
+        database_url = None if from_export else require_database_url()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     summary = run_ingest(
         data_dir=data_dir,
         from_export=from_export,
@@ -148,6 +153,9 @@ def _cmd_bc(args: argparse.Namespace) -> int:
         )
         return 1
     print(f"bc run {summary.run_id}: {summary.run_dir}")
+    tb_dir = summary.run_dir / "tb"
+    if tb_dir.is_dir():
+        progress.log_tensorboard(tb_dir, run_label=summary.run_id)
     if summary.floor_outcome:
         print(f"floor recorder: {summary.floor_outcome}")
     if summary.gate_preview_passed is not None:
@@ -159,7 +167,11 @@ def _cmd_bc(args: argparse.Namespace) -> int:
 
 def _cmd_verify(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir)
-    summary = run_verify(data_dir=data_dir)
+    try:
+        summary = run_verify(data_dir=data_dir)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     if summary.verified:
         print(f"verified {len(summary.verified)}: {', '.join(summary.verified)}")
     if summary.failed:
@@ -194,6 +206,7 @@ def _cmd_ppo(args: argparse.Namespace) -> int:
             run_id=run_id,
             bc_anchor_lambda=args.bc_anchor_lambda,
             bc_anchor_beta=args.bc_anchor_beta,
+            max_updates=args.max_updates,
             use_ray=not args.no_ray,
             ray_workers=args.ray_workers,
             gate_preview=not args.no_gate_preview,
@@ -211,6 +224,9 @@ def _cmd_ppo(args: argparse.Namespace) -> int:
         )
         return 1
     print(f"ppo run {summary.run_id}: {summary.run_dir}")
+    tb_dir = summary.run_dir / "tb"
+    if tb_dir.is_dir():
+        progress.log_tensorboard(tb_dir, run_label=summary.run_id)
     reg = "pass" if summary.regression_passed else "fail"
     print(f"ppo bc regression: {reg}")
     if summary.gate_preview_passed is not None:
@@ -358,6 +374,12 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=0.0,
         help="BC anchor KL vs frozen teacher (0 disables)",
+    )
+    ppo.add_argument(
+        "--max-updates",
+        type=int,
+        default=16,
+        help="PPO rollout/update steps (best val checkpoint restored at end)",
     )
     ppo.add_argument(
         "--ray-workers",

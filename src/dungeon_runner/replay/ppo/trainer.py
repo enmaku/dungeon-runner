@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+UpdateEndFn = Callable[[int, float], None]
 
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 
 from dungeon_runner.replay.bc.human_rows import load_human_rows
+from dungeon_runner.replay.bc.predict import make_replay_predict
+from dungeon_runner.replay.bc.trainer import masked_accuracy
 from dungeon_runner.replay.eval.derived_store import ParquetDerivedRow
 from dungeon_runner.replay.ppo.bc_anchor import anchor_ce_loss, anchor_kl_loss
 from dungeon_runner.replay.ppo.frozen_teacher import FrozenBCTeacher
@@ -21,9 +26,10 @@ from dungeon_runner.replay.ppo.template_sampler import TEMPLATE_BC_BOT
 from dungeon_runner.rl.model import PolicyValueModel
 from dungeon_runner.rl.ppo import PPOConfig, compute_gae, ppo_minibatch_update
 
-PPO_MAX_UPDATES = 32
+PPO_MAX_UPDATES = 16
 PPO_ROLLOUT_STEPS = 256
 PPO_SEED = 17
+PPO_PPO_LR = 1e-4
 PPO_ANCHOR_LR = 3e-4
 
 
@@ -32,6 +38,8 @@ class PPOTrainResult:
     ppo_loss: float
     bc_anchor_ce: float
     bc_anchor_kl: float | None
+    best_val_masked_accuracy: float | None = None
+    best_update: int = 0
 
 
 def _apply_anchor_step(
@@ -142,12 +150,34 @@ def _log_template_scalar(tb_dir: Path, template: str, stats, step: int) -> None:
         tf.summary.scalar(f"rollout/{suffix}/env_steps", float(stats.env_steps), step=step)
 
 
+def _maybe_anchor(
+    model: PolicyValueModel,
+    train_rows: list[ParquetDerivedRow],
+    *,
+    lam: float,
+    teacher: PolicyValueModel | None,
+    beta: float,
+    opt: keras.optimizers.Optimizer,
+) -> tuple[float, float | None]:
+    if lam <= 0 and beta <= 0:
+        return 0.0, None
+    return _apply_anchor_step(
+        model,
+        train_rows,
+        lam=lam,
+        teacher=teacher,
+        beta=beta,
+        opt=opt,
+    )
+
+
 def train_ppo(
     model: PolicyValueModel,
     teacher: FrozenBCTeacher,
     train_rows: list[ParquetDerivedRow],
     *,
     tb_dir: Path,
+    val_rows: list[ParquetDerivedRow] | None = None,
     teacher_weights: Path | None = None,
     bc_anchor_lambda: float = 0.1,
     bc_anchor_beta: float = 0.0,
@@ -155,14 +185,22 @@ def train_ppo(
     ray_workers: int = 8,
     max_updates: int = PPO_MAX_UPDATES,
     rollout_steps: int = PPO_ROLLOUT_STEPS,
+    on_update_end: UpdateEndFn | None = None,
 ) -> PPOTrainResult:
     pyr = random.Random(PPO_SEED)
-    opt = keras.optimizers.Adam(PPO_ANCHOR_LR)
+    ppo_opt = keras.optimizers.Adam(PPO_PPO_LR)
+    anchor_opt = keras.optimizers.Adam(PPO_ANCHOR_LR)
     cfg = PPOConfig()
     teacher_model = teacher._model  # noqa: SLF001
     ppo_losses: list[float] = []
     anchor_ce_vals: list[float] = []
     anchor_kl_vals: list[float] = []
+    best_val = -1.0
+    best_weights: list[np.ndarray] | None = None
+    best_update = 0
+    if val_rows:
+        best_val = masked_accuracy(make_replay_predict(model), val_rows)
+        best_weights = model.get_weights()
 
     def local_collect():
         batch, stats, template = collect_rollouts_local(
@@ -193,21 +231,43 @@ def train_ppo(
                 local_fn=local_collect,
                 ray_fn=ray_collect,
             )
-            loss = _ppo_update_from_batch(model, opt, cfg, batch, pyr)
-            if loss > 0:
-                ppo_losses.append(loss)
-            ce, kl = _apply_anchor_step(
+            ce_pre, kl_pre = _maybe_anchor(
                 model,
                 train_rows,
                 lam=bc_anchor_lambda,
                 teacher=teacher_model if bc_anchor_beta > 0 else None,
                 beta=bc_anchor_beta,
-                opt=opt,
+                opt=anchor_opt,
             )
+            loss = _ppo_update_from_batch(model, ppo_opt, cfg, batch, pyr)
+            if loss > 0:
+                ppo_losses.append(loss)
+            ce_post, kl_post = _maybe_anchor(
+                model,
+                train_rows,
+                lam=bc_anchor_lambda,
+                teacher=teacher_model if bc_anchor_beta > 0 else None,
+                beta=bc_anchor_beta,
+                opt=anchor_opt,
+            )
+            ce = ce_post if bc_anchor_lambda > 0 else ce_pre
+            kl = kl_post if bc_anchor_beta > 0 else kl_pre
             if bc_anchor_lambda > 0:
                 anchor_ce_vals.append(ce)
             if bc_anchor_beta > 0 and kl is not None:
                 anchor_kl_vals.append(kl)
+            if val_rows:
+                val_acc = masked_accuracy(make_replay_predict(model), val_rows)
+                if val_acc > best_val:
+                    best_val = val_acc
+                    best_update = step + 1
+                    best_weights = model.get_weights()
+                if tb_dir is not None:
+                    writer = tf.summary.create_file_writer(str(tb_dir))
+                    with writer.as_default():
+                        tf.summary.scalar("val/masked_accuracy", val_acc, step=step)
+            if on_update_end is not None:
+                on_update_end(step, loss)
             _log_template_scalar(tb_dir, template or TEMPLATE_BC_BOT, stats, step)
             writer = tf.summary.create_file_writer(str(tb_dir))
             with writer.as_default():
@@ -220,10 +280,15 @@ def train_ppo(
         if ray_pool is not None:
             ray_pool.shutdown()
 
+    if best_weights is not None:
+        model.set_weights(best_weights)
+
     return PPOTrainResult(
         ppo_loss=float(np.mean(ppo_losses)) if ppo_losses else 0.0,
         bc_anchor_ce=float(np.mean(anchor_ce_vals)) if anchor_ce_vals else 0.0,
         bc_anchor_kl=(
             float(np.mean(anchor_kl_vals)) if anchor_kl_vals else None
         ),
+        best_val_masked_accuracy=best_val if val_rows else None,
+        best_update=best_update,
     )

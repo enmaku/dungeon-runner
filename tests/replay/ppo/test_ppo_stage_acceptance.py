@@ -219,6 +219,7 @@ def test_ppo_cli_returns_one_when_regression_fails(monkeypatch, tmp_path: Path):
             run_id="ppo-cli-fail",
             bc_anchor_lambda=0.1,
             bc_anchor_beta=0.0,
+            max_updates=16,
             no_ray=True,
             ray_workers=8,
             no_gate_preview=True,

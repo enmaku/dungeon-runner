@@ -42,6 +42,17 @@ def test_replay_metrics_ignores_train_and_nn_rows(derived_store: Path):
     assert metrics.val_row_count == 0
 
 
+def test_replay_metrics_ignores_nn_rows_on_val_match(derived_store: Path):
+    rows = list(load_derived_rows(derived_store, match_ids=[FIXTURE_MATCH_VAL]))
+    metrics = replay_metrics(
+        obs_label_predict,
+        obs_label_predict,
+        rows,
+        val_match_ids={FIXTURE_MATCH_VAL},
+    )
+    assert metrics.val_row_count == 2
+
+
 def test_replay_metrics_without_val_match_id_filter(derived_store: Path):
     rows = list(load_derived_rows(derived_store))
     metrics = replay_metrics(obs_label_predict, obs_label_predict, rows)

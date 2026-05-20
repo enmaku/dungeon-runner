@@ -5,6 +5,17 @@ from pathlib import Path
 import pytest
 
 DOC = Path(__file__).resolve().parents[1] / "docs" / "replay-pipeline.md"
+ENV_EXAMPLE = DOC.parents[1] / ".env.example"
+README = DOC.parents[1] / "README.md"
+
+INGEST_SKIP_REASONS = (
+    "unsupported_version",
+    "missing_seed",
+    "missing_setup",
+    "missing_history",
+    "invalid_presentation_speed",
+    "invalid_history",
+)
 
 
 @pytest.fixture(scope="module")
@@ -158,3 +169,114 @@ def test_documents_run_all_orchestration_detail(md: str) -> None:
     assert "eval_config init" in section
     assert "overwrite" in section.lower()
     assert "exit `2`" not in section
+
+
+def test_ingest_documents_rtdb_shallow_query(md: str) -> None:
+    ingest = md.split("## Ingest", 1)[1].split("\n## ", 1)[0]
+    assert "dungeonRunnerCompletedMatches.json?shallow=true" in ingest
+
+
+def test_ingest_skip_reason_table_covers_all_codes(md: str) -> None:
+    ingest = md.split("## Ingest", 1)[1].split("\n## ", 1)[0]
+    table = ingest.split("#### Skip reason codes", 1)[1].split("\n### ", 1)[0]
+    for code in INGEST_SKIP_REASONS:
+        assert f"`{code}`" in table
+
+
+def test_ingest_documents_intentional_strictness(md: str) -> None:
+    ingest = md.split("## Ingest", 1)[1].split("\n## ", 1)[0]
+    assert "#### Intentional strictness" in ingest
+    assert "type(x) is int" in ingest
+
+
+def test_eval_metrics_section_links_issue_5(md: str) -> None:
+    section = md.split("## Eval metrics", 1)[1].split("\n## ", 1)[0]
+    assert "github.com/enmaku/dungeon-runner/issues/5" in section
+
+
+def test_bc_section_links_issue_6(md: str) -> None:
+    bc = md.split("## BC policy training", 1)[1].split("\n## ", 1)[0]
+    assert "github.com/enmaku/dungeon-runner/issues/6" in bc
+
+
+def test_publish_section_links_issue_8(md: str) -> None:
+    publish = md.split("## Publish (gated promotion)", 1)[1].split("\n## ", 1)[0]
+    assert "github.com/enmaku/dungeon-runner/issues/8" in publish
+
+
+def test_related_links_portfolio_context_and_adr_0001(md: str) -> None:
+    related = md.split("## Related", 1)[1]
+    assert "$PORTFOLIO_SITE_ROOT/CONTEXT.md" in related
+    assert "github.com/enmaku/portfolio-site/blob/main/CONTEXT.md" in related
+    assert "adr/0001-web-game-engine-authoritative.md" in related
+
+
+def test_env_example_documents_both_pipeline_vars() -> None:
+    text = ENV_EXAMPLE.read_text(encoding="utf-8")
+    assert "FIREBASE_DATABASE_URL" in text
+    assert "PORTFOLIO_SITE_ROOT" in text
+    assert "ingest" in text.lower()
+    assert "verify" in text.lower() or "dataset" in text.lower()
+
+
+def test_readme_has_replay_training_pipeline_section() -> None:
+    text = README.read_text(encoding="utf-8")
+    assert "## Replay training pipeline" in text
+    assert "docs/replay-pipeline.md" in text
+    assert "CONTEXT.md" in text
+
+
+def test_stage_map_references_web_sync_issue_11(md: str) -> None:
+    header, _, _ = md.partition("\n---\n")
+    assert "Web sync" in header
+    assert "github.com/enmaku/dungeon-runner/issues/11" in header
+    assert "TF.js" in header
+
+
+def test_ingest_documents_manifest_atomicity(md: str) -> None:
+    ingest = md.split("## Ingest", 1)[1].split("\n## ", 1)[0]
+    assert "### Ingest manifest and atomicity" in ingest
+    assert "manifest.json" in ingest
+
+
+def _release_section(md: str) -> str:
+    return md.split("## Release to portfolio-site", 1)[1].split("\n## ", 1)[0]
+
+
+def test_release_section_links_issue_11(md: str) -> None:
+    release = _release_section(md)
+    assert "github.com/enmaku/dungeon-runner/issues/11" in release
+
+
+def test_release_section_documents_two_repo_handoff(md: str) -> None:
+    release = _release_section(md)
+    assert "two-repo model release" in release
+    assert "TF.js model sync" in release
+    assert "promotion manifest" in release
+
+
+def test_release_section_links_portfolio_model_release_doc(md: str) -> None:
+    release = _release_section(md)
+    assert "$PORTFOLIO_SITE_ROOT/scripts/MODEL_RELEASE.md" in release
+    assert (
+        "github.com/enmaku/portfolio-site/blob/main/scripts/MODEL_RELEASE.md"
+        in release
+    )
+
+
+def test_release_section_links_portfolio_issue_127(md: str) -> None:
+    release = _release_section(md)
+    assert "github.com/enmaku/portfolio-site/issues/127" in release
+
+
+def test_release_section_points_to_context_glossary(md: str) -> None:
+    release = _release_section(md)
+    assert "CONTEXT.md" in release
+    assert "web deployed latest" in release
+    assert "production latest" in release
+    assert "DUNGEON_RUNNER_ROOT" in release
+
+
+def test_release_section_does_not_defer_sync_to_future(md: str) -> None:
+    release = _release_section(md)
+    assert "when that slice ships" not in release

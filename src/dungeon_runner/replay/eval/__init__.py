@@ -18,6 +18,7 @@ from dungeon_runner.replay.eval.derived_store import (
     load_derived_rows,
     load_match_rows,
 )
+from dungeon_runner.replay.eval.floor_recorder import record_floor_if_needed
 from dungeon_runner.replay.eval.gate_evaluator import GateResult, evaluate_gates
 from dungeon_runner.replay.eval.metrics_writer import load_metrics, write_metrics
 from dungeon_runner.replay.eval.replay_metrics import ReplayMetrics, replay_metrics
@@ -37,6 +38,7 @@ __all__ = [
     "ReplayMetrics",
     "SimMetrics",
     "evaluate_gates",
+    "record_floor_if_needed",
     "load_derived_rows",
     "load_match_rows",
     "load_metrics",

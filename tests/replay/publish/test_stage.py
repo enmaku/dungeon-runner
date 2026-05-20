@@ -63,6 +63,24 @@ def test_publish_fails_gates_without_touching_latest_or_ledger(tmp_path):
     assert latest.resolve() == (tmp_path / "models" / "v0.1.30a").resolve()
 
 
+def test_publish_fails_sim_regression_without_promoting(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    write_passing_eval_config(data_dir)
+    seed_legacy_latest(tmp_path)
+    run_dir = write_training_run_artifact(
+        tmp_path,
+        cand_wr=0.5,
+        latest_wr=0.55,
+    )
+
+    with pytest.raises(PublishError) as exc:
+        run_publish(run_dir=run_dir, data_dir=data_dir, repo_root=tmp_path)
+
+    assert "sim_regression" in exc.value.reasons
+    assert not (tmp_path / "models" / "v0.2").exists()
+
+
 def test_second_publish_same_run_id_rejected(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()

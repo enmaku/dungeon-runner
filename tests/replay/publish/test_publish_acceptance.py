@@ -14,7 +14,7 @@ import pytest
 from dungeon_runner.replay.eval.atomic_json import atomic_write_json
 from dungeon_runner.replay.eval.eval_config import EvalConfigArtifact
 from dungeon_runner.replay.publish.manifest import list_promoted_versions
-from dungeon_runner.replay.publish.stage import PublishError, run_publish
+from dungeon_runner.replay.publish.stage import PublishError, run_publish, validate_run_dir
 from tests.replay.publish.publish_fixtures import (
     seed_legacy_latest,
     write_passing_eval_config,
@@ -142,6 +142,43 @@ def test_publish_fails_prefloor_when_eval_config_floor_null(tmp_path):
         run_publish(run_dir=run_dir, data_dir=data_dir, repo_root=tmp_path)
 
     assert "replay_accuracy_floor_not_set" in exc.value.reasons
+
+
+def test_validate_run_dir_rejects_missing_weights(tmp_path):
+    run_dir = tmp_path / "models" / "runs" / "bc-incomplete"
+    run_dir.mkdir(parents=True)
+    (run_dir / "metrics.json").write_text('{"run_id":"bc-incomplete"}\n')
+
+    with pytest.raises(PublishError, match="missing policy.weights.h5"):
+        validate_run_dir(run_dir)
+
+
+def test_publish_cli_stderr_names_failing_gate_legs(tmp_path):
+    repo = tmp_path / "repo"
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    write_passing_eval_config(data_dir, floor=0.9)
+    seed_legacy_latest(repo)
+    run_dir = write_training_run_artifact(repo, val_acc=0.5)
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "dungeon_runner.replay.cli",
+            "publish",
+            "--run",
+            str(run_dir),
+            "--data-dir",
+            str(data_dir),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=repo,
+        env={**os.environ, "PYTHONPATH": str(_repo_root() / "src")},
+    )
+    assert proc.returncode == 1
+    assert "replay_below_floor" in proc.stderr
 
 
 def test_publish_cli_success_prints_promoted_version(tmp_path):

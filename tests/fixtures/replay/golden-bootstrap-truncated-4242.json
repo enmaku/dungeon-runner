@@ -1,11 +1,16 @@
 {
   "version": 1,
-  "seed": 42,
+  "createdAt": "2026-05-19T22:02:13.938Z",
+  "seed": 4242,
   "setup": {
-    "totalSeats": 2,
+    "totalSeats": 3,
     "opponents": [
       {
         "type": "randombot"
+      },
+      {
+        "type": "nn",
+        "modelId": "latest"
       }
     ]
   },
@@ -15,17 +20,9 @@
         "type": "CHOOSE_NEXT_ADVENTURER",
         "hero": "WARRIOR"
       },
-      "actorSeatId": "seat-2",
+      "actorSeatId": "seat-3",
       "rngStepBefore": 0,
       "rngStepAfter": 13
-    },
-    {
-      "action": {
-        "type": "PASS"
-      },
-      "actorSeatId": "seat-2",
-      "rngStepBefore": 999,
-      "rngStepAfter": 1000
     }
   ]
 }

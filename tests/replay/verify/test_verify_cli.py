@@ -9,9 +9,22 @@ import subprocess
 import sys
 from pathlib import Path
 
+from dungeon_runner.replay.env import repo_root
 from dungeon_runner.replay.manifest import load_manifest
 
 from tests.replay.helpers import FIXTURES
+
+
+def _run_cli(*args: str, env: dict | None = None) -> subprocess.CompletedProcess[str]:
+    run_env = {**os.environ, **(env or {})}
+    return subprocess.run(
+        [sys.executable, "-m", "dungeon_runner.replay.cli", *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=repo_root(),
+        env=run_env,
+    )
 
 
 def _write_mock_node(tmp_path: Path) -> Path:
@@ -32,7 +45,6 @@ def test_cli_verify_from_export(tmp_path: Path):
         encoding="utf-8",
     )
     data_dir = tmp_path / "replays"
-    repo = Path(__file__).resolve().parents[2]
     portfolio = tmp_path / "portfolio"
     portfolio.mkdir()
     (portfolio / "src/features/dungeon-runner/engine").mkdir(parents=True)
@@ -47,52 +59,40 @@ def test_cli_verify_from_export(tmp_path: Path):
         target.write_text("// stub\n", encoding="utf-8")
 
     mock_node = _write_mock_node(tmp_path)
-    env = os.environ.copy()
-    env["PORTFOLIO_SITE_ROOT"] = str(portfolio)
-    env["PATH"] = f"{tmp_path}:{env.get('PATH', '')}"
-    # Replace node with mock via PATH prefix only works if harness uses 'node' from PATH.
-    # Inject mock by shadowing: symlink mock as node
     node_link = tmp_path / "node"
     node_link.write_text(mock_node.read_text(encoding="utf-8"), encoding="utf-8")
     node_link.chmod(node_link.stat().st_mode | stat.S_IEXEC)
-    env["PATH"] = f"{tmp_path}{os.pathsep}{env.get('PATH', '')}"
+    env = {
+        "PORTFOLIO_SITE_ROOT": str(portfolio),
+        "PATH": f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}",
+    }
 
-    ingest = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "dungeon_runner.replay.cli",
-            "ingest",
-            "--data-dir",
-            str(data_dir),
-            "--from-export",
-            str(export_path),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=repo,
+    ingest = _run_cli(
+        "ingest",
+        "--data-dir",
+        str(data_dir),
+        "--from-export",
+        str(export_path),
+        env=env,
     )
     assert ingest.returncode == 0, ingest.stderr
 
-    verify = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "dungeon_runner.replay.cli",
-            "verify",
-            "--data-dir",
-            str(data_dir),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=repo,
-        env=env,
-    )
+    verify = _run_cli("verify", "--data-dir", str(data_dir), env=env)
     assert verify.returncode == 0, verify.stderr
     assert "verified" in verify.stdout
     manifest = load_manifest(data_dir)
     assert "match-cli" in manifest.ingested
     verify_manifest = json.loads((data_dir / "verify_manifest.json").read_text(encoding="utf-8"))
     assert "match-cli" in verify_manifest["verified"]
+
+
+def test_cli_verify_fails_without_portfolio_root(tmp_path: Path):
+    proc = _run_cli(
+        "verify",
+        "--data-dir",
+        str(tmp_path / "replays"),
+        env={"PORTFOLIO_SITE_ROOT": ""},
+    )
+    assert proc.returncode == 1
+    assert "PORTFOLIO_SITE_ROOT" in proc.stderr
+    assert "Traceback" not in proc.stderr

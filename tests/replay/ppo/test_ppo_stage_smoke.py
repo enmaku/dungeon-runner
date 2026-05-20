@@ -38,8 +38,7 @@ def test_run_ppo_gate_preview_when_floor_set(tmp_path: Path):
     repo = tmp_path / "repo"
     data = tmp_path / "data"
     write_bc_fixture_tree(data, repo)
-    bc_run = write_ppo_fixture_tree(data, repo)
-    run_bc(
+    bc_setup = run_bc(
         data_dir=data,
         repo_root=repo,
         run_id="bc-gate-setup",
@@ -51,7 +50,7 @@ def test_run_ppo_gate_preview_when_floor_set(tmp_path: Path):
 
     summary = run_ppo(
         data_dir=data,
-        bc_run=bc_run,
+        bc_run=bc_setup.run_dir,
         repo_root=repo,
         run_id="ppo-gate",
         train_ppo_fn=_stub_train,

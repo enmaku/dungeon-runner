@@ -17,6 +17,10 @@ A Python implementation of [*Welcome to the Dungeon*](https://iellogames.com/gam
 
 Tests live under `tests/`. The package is installable with **`pip install -e .`** ([`pyproject.toml`](pyproject.toml)); optional groups are `dev` (pytest), `gui` (pygame), `train` (TensorFlow, PettingZoo, Ray, etc.). A thin [`requirements.txt`](requirements.txt) installs the editable package plus pytest for a minimal dev setup.
 
+## Replay training pipeline
+
+Human **completed match replays** from portfolio-site are ingested, verified against the **web game engine**, turned into Parquet **derived training rows**, and used for BC/PPO training with optional **gated promotion** of weights under `models/`. Maintainer runbook: [`docs/replay-pipeline.md`](docs/replay-pipeline.md) (staged CLI, env vars, manifests, on-disk layout). Domain terms: [`CONTEXT.md`](CONTEXT.md). Copy [`.env.example`](.env.example) to `.env` and set `FIREBASE_DATABASE_URL` (ingest) and `PORTFOLIO_SITE_ROOT` (verify/dataset).
+
 ## Rules and behavior
 
 Tournament rules, equipment, and phase flow that matter for the simulator (including what information each seat is allowed) are documented in the rules file above. The README only summarizes how this repo encodes that.

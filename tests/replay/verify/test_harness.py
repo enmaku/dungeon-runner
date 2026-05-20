@@ -1,11 +1,10 @@
-"""Replay verifier integration tests."""
+"""Node verify_match.mjs harness (requires PORTFOLIO_SITE_ROOT)."""
 
 from __future__ import annotations
 
 import json
 import os
-import stat
-import sys
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -25,86 +24,6 @@ from tests.replay.helpers import (
     seed_ingested,
     seed_ingested_envelope,
 )
-
-
-def _mock_harness_script(tmp_path: Path, responses: dict[str, dict]) -> Path:
-    script = tmp_path / "mock_verify.py"
-    mapping = json.dumps(responses)
-    script.write_text(
-        f"""#!/usr/bin/env python3
-import json
-import sys
-from pathlib import Path
-
-responses = json.loads({mapping!r})
-match_id = Path(sys.argv[2]).stem
-payload = responses.get(match_id, {{"ok": True}})
-print(json.dumps(payload))
-""",
-        encoding="utf-8",
-    )
-    script.chmod(script.stat().st_mode | stat.S_IEXEC)
-    return script
-
-
-def test_run_verify_updates_manifest_with_mock_node(tmp_path: Path):
-    data_dir = tmp_path / "replays"
-    seed_ingested(data_dir, "match-ok", "valid-match-over-seed42.json")
-    seed_ingested(data_dir, "match-bad", "actor-mismatch.json")
-
-    mock = _mock_harness_script(
-        tmp_path,
-        {
-            "match-ok": {"ok": True},
-            "match-bad": {
-                "ok": False,
-                "failure": {"code": "actor_mismatch", "step": 0},
-            },
-        },
-    )
-    portfolio = tmp_path / "portfolio"
-    portfolio.mkdir()
-
-    summary = run_verify(
-        data_dir=data_dir,
-        node_cmd=[sys.executable, str(mock)],
-        harness_path=default_harness_path(),
-        portfolio_root=portfolio,
-    )
-
-    assert summary.verified == ["match-ok"]
-    assert len(summary.failed) == 1
-    assert summary.failed[0]["id"] == "match-bad"
-    assert summary.failed[0]["reason"]["code"] == "actor_mismatch"
-
-    manifest = load_verify_manifest(data_dir)
-    assert manifest.verified == ["match-ok"]
-    assert manifest.failed[0]["id"] == "match-bad"
-
-
-def test_run_verify_noop_when_nothing_pending(tmp_path: Path):
-    data_dir = tmp_path / "replays"
-    portfolio = tmp_path / "portfolio"
-    portfolio.mkdir()
-    summary = run_verify(
-        data_dir=data_dir,
-        node_cmd=[sys.executable, "-c", "pass"],
-        harness_path=default_harness_path(),
-        portfolio_root=portfolio,
-    )
-    assert summary.verified == []
-    assert summary.failed == []
-    assert not (data_dir / "verify_manifest.json").exists()
-
-
-def test_run_verify_requires_portfolio_root(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    data_dir = tmp_path / "replays"
-    seed_ingested(data_dir, "match-ok", "valid-match-over-seed42.json")
-    monkeypatch.delenv("PORTFOLIO_SITE_ROOT", raising=False)
-    with pytest.raises(RuntimeError, match="PORTFOLIO_SITE_ROOT"):
-        run_verify(data_dir=data_dir)
 
 
 @pytest.mark.parametrize(
@@ -152,13 +71,12 @@ def test_golden_kernel_fixture_replays_without_step_failures(
     assert match_id not in summary.verified
     failed = next(e for e in summary.failed if e["id"] == match_id)
     assert failed["reason"]["code"] == "match_not_over"
+    assert "step" not in failed["reason"]
 
 
 def test_verify_harness_illegal_action_stdout(
     skip_without_portfolio: Path,
 ):
-    import subprocess
-
     envelope = FIXTURES / "illegal-action.json"
     proc = subprocess.run(
         [
@@ -183,8 +101,6 @@ def test_fixture_action_types_encode_when_portfolio_set(
     skip_without_portfolio: Path,
     replay_fixtures: Path,
 ):
-    import subprocess
-
     types: set[str] = set()
     for path in replay_fixtures.glob("*.json"):
         for entry in json.loads(path.read_text(encoding="utf-8")).get("history", []):

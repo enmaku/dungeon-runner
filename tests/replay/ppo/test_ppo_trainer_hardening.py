@@ -56,7 +56,7 @@ def _fake_batch(n: int = 8) -> RolloutBatch:
 
 
 def test_ppo_hyperparameters_are_fixed_constants():
-    assert PPO_MAX_UPDATES == 32
+    assert PPO_MAX_UPDATES == 16
     assert PPO_ROLLOUT_STEPS == 256
     assert PPO_SEED == 17
 

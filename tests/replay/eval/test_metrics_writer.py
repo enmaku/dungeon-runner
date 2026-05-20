@@ -23,6 +23,9 @@ def test_write_metrics_round_trip(tmp_path: Path):
     assert path == run_dir / "metrics.json"
     payload = load_metrics(path)
     assert payload["run_id"] == "bc-20260519T000000Z"
+    assert payload["timestamp"] == "2026-05-19T00:00:00+00:00"
+    assert payload["parent_weights"] == "/abs/models/latest/policy.weights.h5"
     assert payload["replay"]["val_masked_accuracy"] == 0.8125
     assert payload["sim"]["candidate_win_rate_vs_randombot"] == 0.5
+    assert payload["sim"]["engine"] == "python_training_sim"
     assert payload["train"]["bc_loss"] == 0.42

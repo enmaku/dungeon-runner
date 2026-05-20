@@ -14,13 +14,14 @@ python -m dungeon_runner.replay.cli <stage> [stage flags…]
 |-------|--------|---------|
 | `ingest` | **implemented** | Pull RTDB or `--from-export` into **raw envelope store** + **ingest manifest** |
 | `verify` | **implemented** | **Replay verifier** — replay each pending envelope through **web game engine** to `match-over` |
-| `eval_suite` | **implemented** | `eval_suite init` — freeze **eval suite artifact** from **verify manifest** `verified` (≥2 ids) |
-| `eval_config` | **implemented** | `eval_config init` — create **eval config artifact** (sim seeds, ε; floor null until BC baseline) |
+| `eval_suite` | **implemented** | `eval_suite init` — **eval suite artifact** **frozen on disk** under `--data-dir` (gitignored `data/`) |
+| `eval_config` | **implemented** | `eval_config init` — **eval config artifact** **frozen on disk** (sim seeds, ε; floor null until BC baseline) |
 | `dataset` | **implemented** | **Dataset build** — **derived match artifact** per **verified replay** (Node labels → Parquet) |
 | `bc` | **implemented** | **BC policy training** → **training run artifact** under `models/runs/` |
 | `ppo` | **implemented** | **BC-anchored PPO policy training** (requires `--bc-run`) |
-| `publish` | implemented | **Gated promotion** to `models/<promoted version>/` + **production latest** symlink |
+| `publish` | implemented | **Gated promotion** — **promotion gates** vs `latest`; copies H5 to `models/<promoted version>/` |
 | `run-all` | **implemented** | **Manual pipeline run** — orchestrate stages in order (see [Run-all](#run-all)) |
+| Web sync | (portfolio-site) | **TF.js model sync** + catalog — players; not dungeon-runner `publish` | [#11](https://github.com/enmaku/dungeon-runner/issues/11) |
 
 Shared flag (all stages that touch replay data):
 
@@ -73,10 +74,10 @@ python -m dungeon_runner.replay.cli ingest --from-export path/to/export.json
 | `--data-dir` | **Training data root** (default `data/replays`) |
 | `--from-export` | Top-level JSON map: keys = match ids, values = envelope objects |
 
-RTDB paths (v1):
+RTDB paths (v1) — **RTDB incremental fetch** skips ids already in **ingest manifest**:
 
-- Shallow list: `{FIREBASE_DATABASE_URL}/dungeonRunnerCompletedMatches.json`
-- Per match: `…/dungeonRunnerCompletedMatches/{matchId}.json`
+- Shallow key list: `{FIREBASE_DATABASE_URL}/dungeonRunnerCompletedMatches.json?shallow=true`
+- Per new id: `…/dungeonRunnerCompletedMatches/{matchId}.json`
 
 Upload contract and browser dedup: portfolio-site [CONTRACT.md — Persistence](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTRACT.md#persistence-contract-v1) (`dungeonRunnerCompletedMatches`, `dungeonRunner:uploadedMatchIds`).
 
@@ -140,7 +141,9 @@ Entry: `src/dungeon_runner/replay/harness/verify_match.mjs` (dungeon-runner–ow
 
 Per match: `node verify_match.mjs raw/{matchId}.json` → stdout JSON `{ "ok": true }` or `{ "ok": false, "failure": { "code", "step?", "detail?" } }`. Exit code `0` always (Python reads stdout).
 
-Step loop: `createInitialMatchState(setup, { seed })` → for each history entry check `actorSeatId`, RNG chain (`rngStepBefore` / `rngStepAfter` vs `state.rng.step`), `encodeActionIndex` ≥ 0, `applyAction` ok → assert `phase === match-over`.
+**Pre-history bootstrap:** Before stepping `history`, the harness calls portfolio-site `bootstrapMatchStateForReplay(setup, seed)` — same seat shuffle, deck shuffle, and `pick-adventurer` start as `DungeonRunnerPage.vue` `startMatch` (not bare `createInitialMatchState`).
+
+Step loop: for each history entry check `actorSeatId`, RNG chain (`rngStepBefore` / `rngStepAfter` vs `state.rng.step`), `encodeActionIndex` ≥ 0, `applyAction` ok → assert `phase === match-over`.
 
 **RNG re-check:** after a successful `applyAction`, the harness compares `result.state.rng.step` to the entry’s `rngStepAfter` (same failure code `rng_chain_break` as a broken chain at the next step’s `rngStepBefore`). Ingest eligibility only checks recorded `rngStepBefore` / `rngStepAfter` shape and continuity; it does not run the engine.
 
@@ -170,7 +173,7 @@ Committed under `tests/fixtures/replay/`:
 With `PORTFOLIO_SITE_ROOT` set, tests also replay portfolio-site `engine/fixtures/golden-seed-4242-two-pass.json` as a v1 envelope (history from `expected.history`). That fixture ends before **match over**; verify must report `match_not_over` with no per-step failure.
 
 ```bash
-PORTFOLIO_SITE_ROOT=/path/to/portfolio-site pytest tests/replay/
+PORTFOLIO_SITE_ROOT=/path/to/portfolio-site pytest tests/replay/verify/ -q
 ```
 
 ---
@@ -242,7 +245,9 @@ python -m dungeon_runner.replay.cli eval_config init [--data-dir data/replays] [
 
 ---
 
-## Eval metrics (issue #5)
+## Eval metrics
+
+**Eval suite & metrics issue:** [dungeon-runner #5](https://github.com/enmaku/dungeon-runner/issues/5).
 
 Shared Python modules under `dungeon_runner.replay.eval` (no separate CLI stage):
 
@@ -286,6 +291,8 @@ python -m dungeon_runner.replay.cli dataset --all [--data-dir data/replays]
 ---
 
 ## BC policy training
+
+**BC policy training issue:** [dungeon-runner #6](https://github.com/enmaku/dungeon-runner/issues/6).
 
 ```bash
 python -m dungeon_runner.replay.cli bc [--data-dir data/replays] [--run-id ID] [--no-gate-preview]
@@ -340,6 +347,8 @@ Tracked in [dungeon-runner #7](https://github.com/enmaku/dungeon-runner/issues/7
 ---
 
 ## Publish (gated promotion)
+
+**Gated promotion issue:** [dungeon-runner #8](https://github.com/enmaku/dungeon-runner/issues/8).
 
 ```bash
 python -m dungeon_runner.replay.cli publish --run models/runs/bc-… \
@@ -476,9 +485,18 @@ See [ADR 0002](adr/0002-promoted-version-semver-and-latest-symlink.md) and **gat
 
 ## Release to portfolio-site
 
-**Gated promotion** copies H5 into semver dirs and repoints **production latest** in dungeon-runner only. Players load TF.js from portfolio-site until maintainers run **TF.js model sync** ([#127](https://github.com/enmaku/portfolio-site/issues/127), umbrella [#128](https://github.com/enmaku/portfolio-site/issues/128)).
+**Two-repo model release issue:** [dungeon-runner #11](https://github.com/enmaku/dungeon-runner/issues/11). **TF.js model sync** implementation: [portfolio-site #127](https://github.com/enmaku/portfolio-site/issues/127) (umbrella [portfolio-site #128](https://github.com/enmaku/portfolio-site/issues/128)).
 
-dungeon-runner [#11](https://github.com/enmaku/dungeon-runner/issues/11) tracks the epic **two-repo model release** checklist; full sync/smoke steps live in portfolio-site docs when that slice ships. This runbook does not duplicate the portfolio checklist (Pass 1 / #10 scope).
+**Gated promotion** (`publish`) copies H5 into `models/<promoted version>/`, writes **promotion manifest** (`promotion.json` + `models/promotions.jsonl`), and repoints dungeon-runner **production latest** (`models/latest` symlink). Players still load TF.js from portfolio-site until maintainers run **TF.js model sync** in the portfolio-site checkout.
+
+### Handoff after `publish`
+
+1. Note the new **promoted version** from `publish` stdout or `models/promotions.jsonl` / `promotion.json`.
+2. Open portfolio-site [**two-repo model release** runbook](https://github.com/enmaku/portfolio-site/blob/main/scripts/MODEL_RELEASE.md) (sibling: `$PORTFOLIO_SITE_ROOT/scripts/MODEL_RELEASE.md`). Optional feature checklist: `$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/RELEASE_CHECKLIST.md`.
+3. Set `DUNGEON_RUNNER_ROOT` to this repo (see portfolio-site `.env.example`), then sync, e.g. `npm run sync-dungeon-runner-model -- --from-latest` or an explicit semver id.
+4. Run **release smoke** (manual play on `/projects/dungeon-runner`; optional Node guard on **web deployed latest** artifacts) per the portfolio runbook.
+
+Glossary: **web deployed latest** vs **production latest**, **deployed model version**, and sync flags live in [`CONTEXT.md`](../CONTEXT.md) (not repeated here). This dungeon-runner runbook stops at promote + link-out; it does not duplicate portfolio sync/catalog commands.
 
 ---
 
