@@ -321,8 +321,8 @@ dungeon-runner treats portfolio-site as producer of **completed match replay** e
 _Avoid_: Blocking dungeon-runner issues on portfolio-site feature PRs; duplicating envelope or replay logic in Python
 
 **RTDB ingest access**:
-Hand-run ingest uses the Realtime Database REST API with **Firebase database URL** from `.env`; optional `--from-export` for offline replay. Service account / Admin SDK is deferred until rules require it.
-_Avoid_: "Firebase pull" implying export files only
+Hand-run ingest uses the Realtime Database REST API with **Firebase database URL** from `.env`; optional `--from-export` for offline replay. Reads require portfolio-site **path-scoped RTDB access** on `dungeonRunnerCompletedMatches` only (no Firebase sign-in in v1). Service account / Admin SDK is deferred if that subtree is ever locked down further.
+_Avoid_: "Firebase pull" implying export files only; assuming ingest needs Firebase Auth while portfolio-site uses **path-scoped RTDB access**
 
 **RTDB incremental fetch**:
 **Live replay ingest** lists match ids with a shallow `GET …/dungeonRunnerCompletedMatches.json?shallow=true`, then fetches `…/{matchId}.json` only for keys absent from **ingest manifest**. **Offline export ingest** reads the full top-level map from one local file and filters by manifest in memory.
@@ -339,6 +339,14 @@ _Avoid_: Storing replays under `models/` or the repo root; committing raw replay
 **Raw envelope store**:
 Per-match file `raw/{matchId}.json` under **training data root** containing the eligible envelope body only (match id in the path, not required inside JSON). Ingest writes the payload **verbatim** after **ingest eligibility** passes—including unknown top-level keys, optional nested `matchId` on the body, and full history entry objects (NN `__debug`, etc.). Canonical match id is always the RTDB key / filename, never body `matchId`.
 _Avoid_: Stripping unknown envelope keys at ingest; rejecting ingest solely because body `matchId` exists; using body `matchId` when it disagrees with the path key
+
+**Completed match replay archive**:
+Portfolio-site RTDB subtree for **completed match replay** envelopes (see portfolio-site Dungeon Runner `CONTEXT.md`). Browser upload is create-only per match id; **live replay ingest** reads without auth under **path-scoped RTDB access**.
+_Avoid_: Expecting the web app to read the archive during play; overwriting an existing archive key from the browser
+
+**Archive listing**:
+Discovering match ids by reading the **completed match replay archive** root, not only fetching a known id. Required for **live replay ingest**; implies world-readable enumeration of archive keys under **path-scoped RTDB access**.
+_Avoid_: “Ingest needs a service account” when rules allow root read on the archive; treating per-id fetch as sufficient for incremental ingest
 
 **Derived match artifact**:
 Per-match directory `derived/{matchId}/` with `rows.parquet` (**derived training rows**) and `meta.json` (`match_id`, **dataset encoding version**, `row_count`, `built_at` UTC ISO-8601). Produced by **dataset build**; presence and version stamp determine **pending dataset**. Node harness emits row JSON on stdout per match; Python writes Parquet and metadata.
@@ -548,7 +556,7 @@ _Avoid_: "pipeline complete" without a promoted model
 - Issue #10 version strictness doc — resolved: **Intentional strictness** subsection under ingest in **Replay pipeline documentation**.
 - Issue #4 Node handoff — resolved: one Node process per match; JSON row array on stdout; Python owns Parquet + `meta.json`.
 - Issue #4 `meta.json` — resolved: `match_id`, **dataset encoding version**, `row_count`, `built_at` (no raw content-hash in v1).
-- portfolio-site `database.rules.json` is fully open today; **RTDB ingest access** may need Admin SDK or auth when rules tighten.
+- portfolio-site RTDB rules — resolved: **path-scoped RTDB access** (no root read/write; see [portfolio-site star-room P2P CONTEXT](https://github.com/enmaku/portfolio-site/blob/main/src/features/p2p/CONTEXT.md)); **RTDB ingest access** keeps unauthenticated REST read on `dungeonRunnerCompletedMatches` until a later lock-down.
 - Issue #11 semver vs portfolio `latest` — resolved: every promote syncs **promoted version** semver dir and refreshes **web deployed latest**; default `modelId: 'latest'` unchanged.
 - Issue #11 sync UX — resolved: single `sync-dungeon-runner-model.mjs <promoted version>` performs semver + **web deployed latest** + catalog (no separate latest step).
 - Issue #11 H5 source — resolved: **TF.js model sync** prefers local `DUNGEON_RUNNER_ROOT` sibling checkout, falls back to git clone.

@@ -80,6 +80,7 @@ class DerivedMatchMeta:
 @dataclass
 class DatasetSummary:
     built: list[str] = field(default_factory=list)
+    retagged: list[str] = field(default_factory=list)
 
 
 def derived_dir(data_dir: Path, match_id: str) -> Path:
@@ -104,6 +105,51 @@ def load_derived_meta(data_dir: Path, match_id: str) -> DerivedMatchMeta | None:
 
 def _staging_root(data_dir: Path) -> Path:
     return data_dir / "derived" / ".staging"
+
+
+def derived_split_tag(data_dir: Path, match_id: str) -> str | None:
+    path = derived_rows_path(data_dir, match_id)
+    if not path.is_file():
+        return None
+    table = pq.read_table(path, columns=["split"])
+    if table.num_rows == 0:
+        return None
+    return str(table.column("split")[0].as_py())
+
+
+def _retag_match_splits(data_dir: Path, match_id: str, split: str) -> None:
+    path = derived_rows_path(data_dir, match_id)
+    table = pq.read_table(path)
+    n = table.num_rows
+    idx = table.schema.get_field_index("split")
+    if idx < 0:
+        raise DatasetBuildError(f"derived rows missing split column: {match_id}")
+    table = table.set_column(idx, "split", pa.array([split] * n, type=pa.string()))
+    if "match_id" in table.column_names:
+        mid_idx = table.schema.get_field_index("match_id")
+        table = table.set_column(
+            mid_idx, "match_id", pa.array([match_id] * n, type=pa.string())
+        )
+    pq.write_table(table, path)
+
+
+def sync_derived_splits(
+    data_dir: Path,
+    eval_suite: EvalSuiteArtifact,
+) -> list[str]:
+    """Rewrite split tags in existing derived Parquet to match the eval suite."""
+    verify = load_verify_manifest(data_dir)
+    retagged: list[str] = []
+    for match_id in sorted(verify.verified):
+        if load_derived_meta(data_dir, match_id) is None:
+            continue
+        expected = split_for(match_id, eval_suite)
+        current = derived_split_tag(data_dir, match_id)
+        if current is None or current == expected:
+            continue
+        _retag_match_splits(data_dir, match_id, expected)
+        retagged.append(match_id)
+    return retagged
 
 
 def pending_dataset_ids(data_dir: Path, *, encode_all: bool = False) -> list[str]:
@@ -273,6 +319,8 @@ def run_dataset(
     except EvalSuiteError as exc:
         raise DatasetBuildError(str(exc)) from exc
 
+    summary = DatasetSummary(retagged=sync_derived_splits(data_dir, eval_suite))
+
     node_cmd = node_cmd or default_node_command()
     harness_path = harness_path or default_dataset_harness_path()
     if not harness_path.is_file():
@@ -283,7 +331,6 @@ def run_dataset(
         if match_ids is not None
         else pending_dataset_ids(data_dir, encode_all=encode_all)
     )
-    summary = DatasetSummary()
     if not targets:
         return summary
 
@@ -320,7 +367,7 @@ def run_dataset(
             built_payloads.append((match_id, rows))
 
         _commit_staging(data_dir, [match_id for match_id, _ in built_payloads])
-        summary.built = [match_id for match_id, _ in built_payloads]
+        summary.built.extend(match_id for match_id, _ in built_payloads)
         return summary
     except Exception:
         if staging.exists():

@@ -383,9 +383,9 @@ The orchestrator runs the same stage entry points as the individual CLIs below i
 |------|--------|---------------|--------|
 | 1 | `ingest` | `FIREBASE_DATABASE_URL` for live RTDB | Default live pull; export-only workflows run `ingest --from-export` separately before `run-all` |
 | 2 | `verify` | `PORTFOLIO_SITE_ROOT` | Pending verify only |
-| 3 | `eval_suite init` | ≥2 verify `verified` ids | Always overwrites **eval suite artifact**; fails with exit `1` if holdout cannot be sampled |
+| 3 | `eval_suite init` | ≥2 verify `verified` ids | Creates artifact if missing; **skips** when `eval_suite.json` exists (re-init manually to change holdout) |
 | 4 | `eval_config init` | — | Creates artifact if missing; **skips** when `eval_config.json` exists (no `--overwrite` from `run-all` v1) |
-| 5 | `dataset` | `PORTFOLIO_SITE_ROOT`, eval artifacts | Pending matches only |
+| 5 | `dataset` | `PORTFOLIO_SITE_ROOT`, eval artifacts | Pending matches only; **retags** existing derived Parquet when split tags disagree with the frozen eval suite |
 | 6 | `bc` | derived + eval artifacts | **Gate evaluator preview** on by default |
 | 7 | `ppo` | `--bc-run` from step 6 | Only with `--with-ppo` |
 | 8 | `publish` | `--run` on last train artifact | Only with `--with-publish`; `ppo-*` if step 7 ran, else `bc-*` |

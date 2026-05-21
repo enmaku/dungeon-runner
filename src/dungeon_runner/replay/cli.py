@@ -101,9 +101,14 @@ def _cmd_dataset(args: argparse.Namespace) -> int:
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    if summary.retagged:
+        print(
+            f"retagged splits for {len(summary.retagged)}: "
+            f"{', '.join(summary.retagged)}"
+        )
     if summary.built:
         print(f"built {len(summary.built)}: {', '.join(summary.built)}")
-    else:
+    elif not summary.retagged:
         print("no pending dataset matches")
     return 0
 
