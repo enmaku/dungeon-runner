@@ -2,6 +2,8 @@
 
 Python repo for match simulation, RL training, and model artifacts. The playable game and replay source of truth live in **portfolio-site**; this context covers turning human **completed match replays** into improved policy weights and gated promotion.
 
+**Cross-repo vocabulary** (link only—do not merge glossaries): [`CROSS_REPO.md`](./CROSS_REPO.md) ↔ portfolio-site [`CROSS_REPO.md`](https://github.com/enmaku/portfolio-site/blob/main/CROSS_REPO.md). Play-side terms: [`portfolio-site` Dungeon Runner `CONTEXT.md`](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTEXT.md) (`$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/CONTEXT.md`).
+
 ## Language
 
 **Completed match replay**:

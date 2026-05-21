@@ -504,8 +504,10 @@ Glossary: **web deployed latest** vs **production latest**, **deployed model ver
 
 | Topic | Location |
 |-------|----------|
+| Cross-repo vocabulary (no term translation) | [`CROSS_REPO.md`](../CROSS_REPO.md) · [portfolio-site `CROSS_REPO.md`](https://github.com/enmaku/portfolio-site/blob/main/CROSS_REPO.md) |
 | Replay envelope v1 (normative) | `$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/CONTRACT.md` · [GitHub](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTRACT.md) |
-| Portfolio-site glossary | `$PORTFOLIO_SITE_ROOT/CONTEXT.md` · [GitHub](https://github.com/enmaku/portfolio-site/blob/main/CONTEXT.md) |
+| Portfolio-site play glossary | `$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/CONTEXT.md` · [GitHub](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTEXT.md) |
+| Portfolio-site site glossary | `$PORTFOLIO_SITE_ROOT/CONTEXT.md` · [GitHub](https://github.com/enmaku/portfolio-site/blob/main/CONTEXT.md) |
 | Web engine authoritative | [ADR 0001](adr/0001-web-game-engine-authoritative.md) |
 | Promoted version semver | [ADR 0002](adr/0002-promoted-version-semver-and-latest-symlink.md) |
 | Portfolio epic v1 | [portfolio-site #128](https://github.com/enmaku/portfolio-site/issues/128) |

@@ -19,7 +19,7 @@ Tests live under `tests/`. The package is installable with **`pip install -e .`*
 
 ## Replay training pipeline
 
-Human **completed match replays** from portfolio-site are ingested, verified against the **web game engine**, turned into Parquet **derived training rows**, and used for BC/PPO training with optional **gated promotion** of weights under `models/`. Maintainer runbook: [`docs/replay-pipeline.md`](docs/replay-pipeline.md) (staged CLI, env vars, manifests, on-disk layout). Domain terms: [`CONTEXT.md`](CONTEXT.md). Copy [`.env.example`](.env.example) to `.env` and set `FIREBASE_DATABASE_URL` (ingest) and `PORTFOLIO_SITE_ROOT` (verify/dataset).
+Human **completed match replays** from portfolio-site are ingested, verified against the **web game engine**, turned into Parquet **derived training rows**, and used for BC/PPO training with optional **gated promotion** of weights under `models/`. Maintainer runbook: [`docs/replay-pipeline.md`](docs/replay-pipeline.md) (staged CLI, env vars, manifests, on-disk layout). Domain terms: [`CONTEXT.md`](CONTEXT.md). Cross-repo term links: [`CROSS_REPO.md`](CROSS_REPO.md) ↔ portfolio-site sibling. Copy [`.env.example`](.env.example) to `.env` and set `FIREBASE_DATABASE_URL` (ingest) and `PORTFOLIO_SITE_ROOT` (verify/dataset).
 
 ## Rules and behavior
 
