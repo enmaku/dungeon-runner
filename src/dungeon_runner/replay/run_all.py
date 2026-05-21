@@ -14,7 +14,11 @@ from dungeon_runner.replay.eval.eval_config import (
     init_eval_config,
     load_eval_config,
 )
-from dungeon_runner.replay.eval.eval_suite import EvalSuiteError, init_eval_suite
+from dungeon_runner.replay.eval.eval_suite import (
+    EvalSuiteError,
+    init_eval_suite,
+    load_eval_suite,
+)
 from dungeon_runner.replay.ingest import run_ingest
 from dungeon_runner.replay import progress
 from dungeon_runner.replay.ppo import PPOPrerequisiteError, PPOStageError, run_ppo
@@ -105,9 +109,14 @@ def _default_dataset(data_dir: Path) -> int:
     except (DatasetBuildError, RuntimeError) as exc:
         progress.log(f"  {exc}")
         return 1
+    if summary.retagged:
+        progress.log(
+            f"  retagged splits for {len(summary.retagged)}: "
+            f"{', '.join(summary.retagged)}"
+        )
     if summary.built:
         progress.log(f"  built {len(summary.built)}: {', '.join(summary.built)}")
-    else:
+    elif not summary.retagged:
         progress.log("  no pending dataset matches")
     return 0
 
@@ -237,9 +246,18 @@ def run_all(
     progress.log_done()
 
     _header(step_labels[2])
-    if stages.eval_suite_init(data_dir) != 0:
-        progress.log_failed(step_labels[2], 1)
-        return 1
+    if load_eval_suite(data_dir) is None:
+        if stages.eval_suite_init(data_dir) != 0:
+            progress.log_failed(step_labels[2], 1)
+            return 1
+    else:
+        existing = load_eval_suite(data_dir)
+        assert existing is not None
+        progress.log(
+            f"  skipped (eval_suite.json exists: "
+            f"{len(existing.val_match_ids)} val / "
+            f"{len(existing.created_from_match_ids)} verified)"
+        )
     progress.log_done()
 
     _header(step_labels[3])

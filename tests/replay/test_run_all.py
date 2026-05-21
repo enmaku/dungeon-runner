@@ -156,6 +156,25 @@ def test_run_all_fail_fast(tmp_path: Path) -> None:
     assert order == ["ingest", "verify"]
 
 
+def test_run_all_skips_eval_suite_init_when_artifact_exists(
+    tmp_path: Path,
+) -> None:
+    from dungeon_runner.replay.eval.eval_suite import init_eval_suite
+    from tests.replay.helpers import seed_verify_state
+
+    seed_verify_state(tmp_path, verified=["match-a", "match-b", "match-c"])
+    init_eval_suite(tmp_path, sampling_seed=42)
+    called = False
+
+    def eval_suite_init(_data_dir: Path) -> int:
+        nonlocal called
+        called = True
+        return 0
+
+    run_all(data_dir=tmp_path, stages=_stages(eval_suite_init=eval_suite_init))
+    assert called is False
+
+
 def test_run_all_skips_eval_config_init_when_artifact_exists(
     tmp_path: Path,
 ) -> None:

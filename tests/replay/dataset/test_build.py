@@ -11,6 +11,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import pytest
 
+from dungeon_runner.replay.bc.prerequisites import check_bc_prerequisites
 from dungeon_runner.replay.dataset import (
     DATASET_ENCODING_VERSION,
     DatasetBuildError,
@@ -18,6 +19,7 @@ from dungeon_runner.replay.dataset import (
     load_derived_meta,
     pending_dataset_ids,
     run_dataset,
+    sync_derived_splits,
 )
 from dungeon_runner.replay.eval.derived_store import load_match_rows
 from dungeon_runner.replay.eval.eval_suite import init_eval_suite
@@ -90,6 +92,137 @@ def test_run_dataset_fails_without_portfolio_root(
 
     with pytest.raises(RuntimeError, match="PORTFOLIO_SITE_ROOT"):
         run_dataset(data_dir=data_dir)
+
+
+def test_sync_derived_splits_retags_stale_val(tmp_path: Path):
+    data_dir = tmp_path / "replays"
+    seed_verify_state(data_dir, verified=["match-a", "match-b", "match-c"])
+    suite = init_eval_suite(data_dir, sampling_seed=42)
+    stale_val = next(m for m in ["match-a", "match-b", "match-c"] if m not in suite.val_match_ids)
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    stale_dir = data_dir / "derived" / stale_val
+    stale_dir.mkdir(parents=True)
+    pq.write_table(
+        pa.table(
+            {
+                "match_id": [stale_val],
+                "split": ["val"],
+                "is_human": [True],
+                "policy_action_index": [0],
+                "obs": [[0.0]],
+                "mask": [[1]],
+            }
+        ),
+        stale_dir / "rows.parquet",
+    )
+    (stale_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "match_id": stale_val,
+                "encoding_version": DATASET_ENCODING_VERSION,
+                "row_count": 1,
+                "built_at": "2026-05-19T12:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    retagged = sync_derived_splits(data_dir, suite)
+    assert retagged == [stale_val]
+    table = pq.read_table(stale_dir / "rows.parquet")
+    assert table.column("split")[0].as_py() == "train"
+
+
+def test_run_dataset_sync_fixes_bc_prerequisite_stale_val(tmp_path: Path):
+    data_dir = tmp_path / "replays"
+    repo = tmp_path / "repo"
+    seed_verify_state(data_dir, verified=["match-a", "match-b", "match-c"])
+    suite = init_eval_suite(data_dir, sampling_seed=42)
+    val_id = suite.val_match_ids[0]
+    stale_val = next(m for m in ["match-a", "match-b", "match-c"] if m != val_id)
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from dungeon_runner.replay.eval.eval_config import EvalConfigArtifact
+    from dungeon_runner.replay.eval.atomic_json import atomic_write_json
+
+    for match_id, split in ((val_id, "val"), (stale_val, "val")):
+        d = data_dir / "derived" / match_id
+        d.mkdir(parents=True)
+        pq.write_table(
+            pa.table(
+                {
+                    "match_id": [match_id] * 2,
+                    "split": [split, split],
+                    "is_human": [True, True],
+                    "policy_action_index": [0, 1],
+                    "obs": [[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                    "mask": [[1, 1, 1, 1], [1, 1, 1, 1]],
+                }
+            ),
+            d / "rows.parquet",
+        )
+        (d / "meta.json").write_text(
+            json.dumps(
+                {
+                    "match_id": match_id,
+                    "encoding_version": DATASET_ENCODING_VERSION,
+                    "row_count": 2,
+                    "built_at": "2026-05-19T12:00:00Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    train_id = next(m for m in ["match-a", "match-b", "match-c"] if m not in (val_id, stale_val))
+    train_dir = data_dir / "derived" / train_id
+    train_dir.mkdir(parents=True)
+    pq.write_table(
+        pa.table(
+            {
+                "match_id": [train_id] * 2,
+                "split": ["train", "train"],
+                "is_human": [True, True],
+                "policy_action_index": [0, 1],
+                "obs": [[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                "mask": [[1, 1, 1, 1], [1, 1, 1, 1]],
+            }
+        ),
+        train_dir / "rows.parquet",
+    )
+    (train_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "match_id": train_id,
+                "encoding_version": DATASET_ENCODING_VERSION,
+                "row_count": 2,
+                "built_at": "2026-05-19T12:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    atomic_write_json(
+        data_dir / "eval_config.json",
+        EvalConfigArtifact(
+            sim_seeds=[0],
+            sim_regression_tolerance=0.01,
+            replay_accuracy_floor=None,
+        ).to_dict(),
+    )
+    (repo / "models" / "latest").mkdir(parents=True)
+    (repo / "models" / "latest" / "policy.weights.h5").write_bytes(b"x")
+
+    with pytest.raises(Exception, match="not in eval suite holdout"):
+        check_bc_prerequisites(data_dir, repo)
+
+    summary = run_dataset(data_dir=data_dir, portfolio_root=tmp_path / "portfolio")
+    assert stale_val in summary.retagged
+    check_bc_prerequisites(data_dir, repo)
 
 
 def test_pending_dataset_ids_encode_all_includes_built(tmp_path: Path):
