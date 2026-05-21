@@ -2,7 +2,7 @@
 
 Python repo for match simulation, RL training, and model artifacts. The playable game and replay source of truth live in **portfolio-site**; this context covers turning human **completed match replays** into improved policy weights and gated promotion.
 
-**Cross-repo vocabulary** (link only—do not merge glossaries): [`CROSS_REPO.md`](./CROSS_REPO.md) ↔ portfolio-site [`CROSS_REPO.md`](https://github.com/enmaku/portfolio-site/blob/main/CROSS_REPO.md). Play-side terms: [`portfolio-site` Dungeon Runner `CONTEXT.md`](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTEXT.md) (`$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/CONTEXT.md`).
+**Ubiquitous language (consolidated):** [`UBIQUITOUS_LANGUAGE.md`](./UBIQUITOUS_LANGUAGE.md) ↔ portfolio-site [`UBIQUITOUS_LANGUAGE.md`](https://github.com/enmaku/portfolio-site/blob/main/UBIQUITOUS_LANGUAGE.md). Sibling index: [`CROSS_REPO.md`](./CROSS_REPO.md). Play-side terms: [`portfolio-site` Dungeon Runner `CONTEXT.md`](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTEXT.md).
 
 ## Language
 
@@ -17,6 +17,10 @@ _Avoid_: "replay JSON" without version context
 **Replay envelope contract (v1)**:
 Normative field and eligibility rules for **replay envelope version** `1` in a dedicated portfolio-site `CONTRACT.md` section (`## Replay envelope contract (v1)`), with a v2 planned appendix in the same area. dungeon-runner adds a cross-linked pipeline doc for ingest-only extensions (skip reason codes, `raw/{matchId}.json` layout, RTDB map shape)—not a second full copy of the field list. Planned **replay envelope version** `2` fields are documented only in portfolio-site CONTRACT; ingest skips unsupported versions until a later issue implements them.
 _Avoid_: Duplicating the full v1 spec or v2 roadmap in dungeon-runner `CONTEXT.md`; burying the spec as a single bullet under Debug only; treating dungeon-runner pipeline docs as the producer-owned rules source
+
+**Presentation pace**:
+Optional **replay envelope** field `presentationSpeedProfile` (`cinematic` | `brisk`) for debug/replay playback speed in portfolio-site. Part of **ingest eligibility** when present; ignored by **replay verifier**, dataset encoding, and **promotion gates**.
+_Avoid_: Rules or RNG semantics; training labels; stripping at ingest when otherwise eligible
 
 **Replay envelope version**:
 Integer schema id on each envelope. v1 ingest requires a true integer `1` (not string, bool, or float); missing or any other value is skipped as `unsupported_version` without coercion. portfolio-site `importReplayEnvelope` uses a looser `version !== 1` check—dungeon-runner may reject edge types web would reject anyway; pipeline doc notes any intentional divergence.
@@ -34,13 +38,21 @@ _Avoid_: "action id"; re-deriving indices in dungeon-runner Python
 History field `actorSeatId` (`seat-1`…`seat-4`) naming which seat took the step. Maps to engine seat index only after `randomizeSeatsFromSetup` from envelope `seed` + `setup`; **replay verifier** requires it to match the engine’s current actor each step.
 _Avoid_: Treating `seat-1` as the human player; ignoring `actorSeatId` during verify
 
+**Human player seat**:
+The single seat whose setup role is `human` after `randomizeSeatsFromSetup`, identified by its **actor seat id** (`seat-1`…`seat-4`). Exactly one per **match**; not listed in `setup.opponents`. Resolved at **dataset build** and **web game engine** replay bootstrap—the anchor for **Human step** labeling and `is_human` on **derived training rows**.
+_Avoid_: Assuming `seat-1`; **Human step** (one history entry); **Non-NN history step**; inferring from `modelId` absent
+
+**Randombot**:
+A **setup** **opponent** seat with role `randombot` that chooses legal actions without a neural policy. Implementation id is lowercase `randombot`; **RandomBot** is legacy Python class naming only. **Non-NN history step** when that seat acts without `modelId`.
+_Avoid_: Random bot (two words) in glossary; **RandomBot** as product term; conflating with **BC-bot** or **Neural opponent**
+
 **Non-NN history step**:
-A history entry whose `action` has no `modelId` (human player and **randombot** steps both qualify). Envelope-level NN vs not-NN marker in v1 until **replay envelope version** 2 `humanSeatIds`.
-_Avoid_: Calling these "human" in BC/training docs; inferring the human player seat from `modelId` alone
+A history entry whose `action` has no `modelId` (**human player seat** actions and **Randombot** steps both qualify). Envelope-level NN vs not-NN marker in v1 until **replay envelope version** 2 `humanSeatIds`.
+_Avoid_: Calling these "human" in BC/training docs; inferring **Human player seat** from `modelId` alone
 
 **Human step**:
-A history entry whose **actor seat id** is the human player seat after setup seat shuffle (resolved at **dataset build** / **web game engine** replay—not from `modelId` absent alone). Sets `is_human: true` on **derived training rows**. Human is not listed in `setup.opponents`; seat assignment is seed-shuffled.
-_Avoid_: Assuming `seat-1`; treating **Non-NN history step** as **human step**; requiring `humanSeatIds` in v1 envelope
+A history entry whose **actor seat id** equals the **human player seat** (resolved at **dataset build** / **web game engine** replay—not from `modelId` absent alone). Sets `is_human: true` on **derived training rows**.
+_Avoid_: Treating **Non-NN history step** as **human step**; requiring `humanSeatIds` in v1 envelope
 
 **Gated promotion**:
 Copying candidate weights from **training run artifact** to `models/<promoted version>/` only after **promotion gates** pass, then repointing **production latest** at that directory.
@@ -131,7 +143,7 @@ BC and PPO both start from `models/latest/policy.weights.h5`; each run still rec
 _Avoid_: "checkpoint" without saying latest vs semver; parent or run weights under **training data root**
 
 **Frozen eval suite**:
-Fixed held-out match ids (~20% of ingested matches, chosen once) for **replay eval metrics** on **derived training rows**, plus a fixed seed list for **legacy Python sim benchmarks** vs `latest` and RandomBot. No separate disagreement slice or self-play matrix in v1.
+Fixed held-out match ids (~20% of ingested matches, chosen once) for **replay eval metrics** on **derived training rows**, plus a fixed seed list for **legacy Python sim benchmarks** vs `latest` and **Randombot**. No separate disagreement slice or self-play matrix in v1.
 _Avoid_: "validation set" without specifying match-level holdout vs step-level; implying metrics re-invoke the **web game engine**
 
 **Eval suite artifact**:
@@ -147,7 +159,7 @@ _Avoid_: Storing the floor or sim seeds only inside **eval suite artifact** or p
 _Avoid_: Strict zero tolerance on small seed lists; conflating with replay accuracy floor
 
 **Sim eval metrics**:
-Win rate on **legacy Python sim benchmarks**: candidate and **training parent** (`latest`) each run the full frozen seed list independently vs RandomBot on **Python training sim**; **promotion gates** sim leg passes when candidate win rate ≥ latest win rate minus **sim regression tolerance**.
+Win rate on **legacy Python sim benchmarks**: candidate and **training parent** (`latest`) each run the full frozen seed list independently vs **Randombot** on **Python training sim**; **promotion gates** sim leg passes when candidate win rate ≥ latest win rate minus **sim regression tolerance**.
 _Avoid_: Paired per-seed sign tests in v1; strict `>` with zero tolerance on small seed lists
 
 **Replay accuracy floor**:
@@ -205,6 +217,14 @@ _Avoid_: "Python verifier"; golden fixtures as a substitute for live replay (fix
 **Python training sim**:
 Legacy in-repo `Match` for existing PPO / self-play until the training stack moves off it; not maintained for parity with the **web game engine** and expected to be deprecated after the replay pipeline ships.
 _Avoid_: Treating Python sim as co-equal source of truth; investing in Python–JS alignment
+
+**Match over**:
+**Web game engine** terminal phase `match-over` with a recorded winner (`matchWinnerSeatId`). Authoritative for play, **completed match replay** export, **replay verifier**, and **verified replay**. Not the same as **Python training sim** terminals that end without a winner.
+_Avoid_: Calling **sim empty-pile forfeit** “match over”; Python `Match` phase names as product vocabulary
+
+**Sim empty-pile forfeit**:
+**Python training sim**-only outcome when bidding ends with an empty dungeon pile: terminal `EMPTY_DUNGEON_FORFEIT`, no winner. Anti-exploit rule from early training (pass-heavy policies farming random wins); remains a sim **local minima** vs table rules. Never appears in browser **completed match replay** archives; **web game engine** treats the same situation as an immediate successful **dungeon run**.
+_Avoid_: **Match over**; runner combat loss; expecting replay ingest to see these endings
 
 **Replay verifier**:
 Pipeline stage that stepwise replays each ingested **replay envelope** through the **web game engine**, requiring terminal phase `match-over`, **actor seat id** alignment, legal actions, and a valid **policy action index** for each history action (via web `encodeActionIndex`); each **pending verify** match is checked via one Node invocation; outcomes are recorded in **verify manifest**; failing matches do not reach dataset build.
@@ -290,16 +310,20 @@ _Avoid_: Updating the teacher during PPO; KL without a frozen snapshot
 A non-trainable copy of `policy.weights.h5` snapshotted at **BC-anchored PPO policy training** start from **PPO BC run**. Used for **BC anchor KL** and for **BC-bot** action selection in rollouts.
 _Avoid_: “Frozen BC” meaning promoted `latest`; teacher weights drifting with the learner
 
+**Learner**:
+The seat whose policy weights are updating during **BC-anchored PPO policy training** on **Python training sim**—the trainable agent in rollouts and self-play templates. Not the **human player seat** (archived **match** play) and not a **Neural opponent** in portfolio-site TF.js play.
+_Avoid_: Human player, player, guest; **BC-bot**; promoted **Neural opponent**
+
 **Rollout opponent roster**:
-The opponent types used in **BC-anchored PPO policy training** on **Python training sim**: **RandomBot**, **BC-bot** (**frozen BC teacher**), and self-play (other seats use the learner). v1 samples one **rollout match template** per new match (not long contiguous blocks of a single template).
+The opponent types used in **BC-anchored PPO policy training** on **Python training sim**: **Randombot**, **BC-bot** (**frozen BC teacher**), and self-play (other seats use the **learner**). v1 samples one **rollout match template** per new match (not long contiguous blocks of a single template).
 _Avoid_: “Roster” meaning eval opponents only; BC-bot on **web game engine** rollouts
 
 **Rollout match template**:
-A fixed lineup rule for one sim match. v1 templates (fixed probabilities in code, default **20% / 45% / 35%**): (1) one **learner** seat vs **RandomBot** opponents, (2) one **learner** vs **BC-bot** opponents, (3) full self-play (all seats **learner**). Each new match draws a template independently so TensorBoard rollout stats stay interleaved. Only **learner** seats contribute transitions to the PPO buffer except template (3), where all seats do. Training mix is separate from **sim eval metrics** (still vs RandomBot on frozen seeds).
-_Avoid_: Long runs of a single template before switching; per-seat independent opponent sampling in v1; assuming rollout RandomBot share must match sim eval opponent
+A fixed lineup rule for one sim match. v1 templates (fixed probabilities in code, default **20% / 45% / 35%**): (1) one **learner** seat vs **Randombot** opponents, (2) one **learner** vs **BC-bot** opponents, (3) full self-play (all seats **learner**). Each new match draws a template independently so TensorBoard rollout stats stay interleaved. Only **learner** seats contribute transitions to the PPO buffer except template (3), where all seats do. Training mix is separate from **sim eval metrics** (still vs **Randombot** on frozen seeds).
+_Avoid_: Long runs of a single template before switching; per-seat independent opponent sampling in v1; assuming rollout **Randombot** share must match sim eval opponent; **RandomBot** as glossary spelling; conflating **learner** with **human player seat**
 
 **BC-bot**:
-An opponent seat in **Python training sim** that acts via **frozen BC teacher** forward passes (Keras **PolicyValueModel** + Python `actions_codec` for legal actions). Not the training policy and not **RandomBot**.
+An opponent seat in **Python training sim** that acts via **frozen BC teacher** forward passes (Keras **PolicyValueModel** + Python `actions_codec` for legal actions). Not the training policy and not **Randombot**.
 _Avoid_: BC-bot on replay-derived rows; BC-bot meaning the human-labeled **derived store**
 
 **PPO rollout collection**:
@@ -391,8 +415,8 @@ A single ingest run either completes all new pulls and eligibility writes and th
 _Avoid_: Leaving a half-updated manifest after a failed pull
 
 **Ingest eligibility**:
-A match passes ingest only when it would pass portfolio-site `importReplayEnvelope` (version, seed, setup, history shape including per-entry RNG step rules; optional `presentationSpeedProfile` enum). Empty `history` arrays are eligible if import would pass; **replay verifier** rejects non-terminal replays. Enforced at ingest without **web engine root**; dungeon-runner keeps behavior aligned via acceptance tests keyed to portfolio-site replay import cases. Skipped matches are recorded in **ingest manifest** with a granular reason code. Shape/RNG-chain only—**replay verifier** owns full replay to `match-over`.
-_Avoid_: "valid replay" at ingest; expecting ingest to prove `match-over`; rejecting `history: []` at ingest when web import accepts it; Node or **web game engine** at ingest; eligibility logic drifting from web import without shared test coverage
+Static shape and import rules a match must pass before **raw envelope store** write—aligned with portfolio-site `importReplayEnvelope` (version, seed, setup, history turn-boundary chain, optional `presentationSpeedProfile` enum). Empty `history` arrays are eligible if import would pass. Enforced without **web engine root**; skips recorded in **ingest manifest** with granular reason codes. Does not prove **match over** or **verified replay**—**replay verifier** owns terminal replay.
+_Avoid_: "valid replay"; conflating with **verified replay**; **replay verifier** at ingest; expecting ingest to prove `match-over`; Node at ingest; eligibility drifting from web import without parity tests
 
 **Structural envelope check**:
 Same shape and static RNG-chain rules as **ingest eligibility**; performed at ingest only. **Replay verifier** does not repeat it for **pending verify** matches.
@@ -410,7 +434,7 @@ _Avoid_: "pipeline complete" without a promoted model
 - **Two-repo model release** follows **gated promotion** and is documented for **Epic v1 success bar**
 - **Portfolio-site coordination issue** ([#128](https://github.com/enmaku/portfolio-site/issues/128)) owns portfolio-side deliverables; **TF.js model sync** implementation in [#127](https://github.com/enmaku/portfolio-site/issues/127); dungeon-runner #11 tracks epic closure
 - **Web-authoritative labels** and **replay verifier** use the **web game engine** only; **Python training sim** is legacy PPO/self-play, not a parity target
-- Only **human step** entries get `is_human` on **derived training rows** (BC trains on those); **Non-NN history step** without human seat (e.g. randombot) still produces rows but not human-labeled ones unless a future envelope adds `humanSeatIds`
+- Each **match** has exactly one **human player seat**; **Human step** rows get `is_human` on **derived training rows** (BC trains on those); **Non-NN history step** from **Randombot** still produces rows with `is_human: false` unless a future envelope adds `humanSeatIds`
 - **Promotion gates** replay leg uses **replay eval metrics** on **frozen eval suite** val ids from **derived store** (no second Node replay at eval)
 - **BC-anchored PPO policy training** requires **PPO BC run**; optional in **manual pipeline run** via `--with-ppo`
 - **Training data root** holds raw envelopes, **ingest manifest**, and **verify manifest** before dataset build
@@ -425,7 +449,7 @@ _Avoid_: "pipeline complete" without a promoted model
 
 ## Example dialogue
 
-> **Dev:** "Can we promote if replay accuracy improved but we lose a bit vs RandomBot in sim?"
+> **Dev:** "Can we promote if replay accuracy improved but we lose a bit vs **Randombot** in sim?"
 > **Domain expert:** "No — **Promotion gates** require both: sim must not regress vs `latest`, and replay accuracy must clear the held-out floor. Imitation alone isn't enough."
 
 > **Dev:** "Is v1 done when ingest and verify work?"

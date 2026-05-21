@@ -255,7 +255,7 @@ Shared Python modules under `dungeon_runner.replay.eval` (no separate CLI stage)
 |--------|------|
 | `replay_metrics` | Val **human step** rows from **derived store** Parquet: forward candidate + `latest` on stored `obs`/`mask` vs **policy action index**; **disagreement rate** is report-only |
 | `derived_store.load_derived_rows` | Read `derived/{matchId}/rows.parquet` (`split`, `is_human`, `obs`, `mask`, `policy_action_index`) |
-| `sim_metrics` | Independent **Python training sim** rollouts vs RandomBot on **eval config artifact** seeds |
+| `sim_metrics` | Independent **Python training sim** rollouts vs **Randombot** on **eval config artifact** seeds |
 | `write_metrics` | Atomic `metrics.json` beside `policy.weights.h5` in **training run artifact** |
 | `evaluate_gates` | Pass/fail from committed metrics + **eval config artifact** (preview in `bc`/`ppo`, real in `publish`) |
 | `record_floor_if_needed` | First **BC baseline run** writes **replay accuracy floor** into **eval config artifact** |
@@ -338,9 +338,9 @@ Exit **`1`** on prerequisite/training failure (no committed run dir) or **PPO BC
 
 Tracked in [dungeon-runner #7](https://github.com/enmaku/dungeon-runner/issues/7).
 
-- **Rollout match templates:** 20% learner vs **RandomBot**, 45% vs **BC-bot** (**frozen BC teacher**), 35% self-play.
+- **Rollout match templates:** 20% learner vs **Randombot**, 45% vs **BC-bot** (**frozen BC teacher**), 35% self-play.
 - **Ray rollout pool:** one persistent actor per worker for the run; `train_ppo` always calls `shutdown()` in a `finally` block. Ray init or worker startup failures surface as `RayRolloutError` with a `--no-ray` hint; use `--no-ray` when Ray is missing or unstable on the host.
-- **Legacy maintainer scripts (not replay CLI):** `scripts/train.py` remains the original **RandomBot-only** in-process PPO loop (`logdir/`, no eval artifacts). `scripts/train_rllib.py` reuses the same Ray local-cluster helpers as replay PPO (`dungeon_runner.rl.ray_local`) but still targets RandomBot self-play, not **rollout match templates**. Replay PPO rollout collection lives under `dungeon_runner.replay.ppo` (`template_sampler`, `rollout_collector`, `ray_workers`); do not change `train.py` behavior when extending the pipeline.
+- **Legacy maintainer scripts (not replay CLI):** `scripts/train.py` remains the original RandomBot-only (`RandomBot` class) in-process PPO loop (`logdir/`, no eval artifacts). `scripts/train_rllib.py` reuses the same Ray local-cluster helpers as replay PPO (`dungeon_runner.rl.ray_local`) but still targets `RandomBot` self-play (domain: **Randombot**), not **rollout match templates**. Replay PPO rollout collection lives under `dungeon_runner.replay.ppo` (`template_sampler`, `rollout_collector`, `ray_workers`); do not change `train.py` behavior when extending the pipeline.
 - Post-train: same `replay_metrics` + `sim_metrics` + `write_metrics` path as `bc` (vs `latest` for preview gates).
 - Records `ppo_bc_regression.pass` in **metrics artifact**; `publish` on `ppo-*` requires `true`.
 
@@ -504,7 +504,8 @@ Glossary: **web deployed latest** vs **production latest**, **deployed model ver
 
 | Topic | Location |
 |-------|----------|
-| Cross-repo vocabulary (no term translation) | [`CROSS_REPO.md`](../CROSS_REPO.md) · [portfolio-site `CROSS_REPO.md`](https://github.com/enmaku/portfolio-site/blob/main/CROSS_REPO.md) |
+| Ubiquitous language (consolidated) | [`UBIQUITOUS_LANGUAGE.md`](../UBIQUITOUS_LANGUAGE.md) · [portfolio-site](https://github.com/enmaku/portfolio-site/blob/main/UBIQUITOUS_LANGUAGE.md) |
+| Cross-repo index | [`CROSS_REPO.md`](../CROSS_REPO.md) · [portfolio-site `CROSS_REPO.md`](https://github.com/enmaku/portfolio-site/blob/main/CROSS_REPO.md) |
 | Replay envelope v1 (normative) | `$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/CONTRACT.md` · [GitHub](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTRACT.md) |
 | Portfolio-site play glossary | `$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/CONTEXT.md` · [GitHub](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTEXT.md) |
 | Portfolio-site site glossary | `$PORTFOLIO_SITE_ROOT/CONTEXT.md` · [GitHub](https://github.com/enmaku/portfolio-site/blob/main/CONTEXT.md) |

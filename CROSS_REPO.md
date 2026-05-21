@@ -1,9 +1,9 @@
 # Cross-repo vocabulary (dungeon-runner ↔ portfolio-site)
 
-This repo owns **replay training**, **gated promotion**, and H5 **production latest**. [portfolio-site](https://github.com/enmaku/portfolio-site) owns the playable **match**, **replay envelope** export, and TF.js **web deployed latest**. Terms are **not translated** across repos—link to the other glossary and keep local names.
+This repo owns **replay training**, **gated promotion**, and H5 **production latest**. [portfolio-site](https://github.com/enmaku/portfolio-site) owns the playable **match**, **replay envelope** export, and TF.js **web deployed latest**. Shared canonical terms: [`UBIQUITOUS_LANGUAGE.md`](./UBIQUITOUS_LANGUAGE.md) ↔ [portfolio-site `UBIQUITOUS_LANGUAGE.md`](https://github.com/enmaku/portfolio-site/blob/main/UBIQUITOUS_LANGUAGE.md).
 
-**Local glossary:** [`CONTEXT.md`](./CONTEXT.md)  
-**Sibling glossary:** [`portfolio-site` Dungeon Runner `CONTEXT.md`](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTEXT.md) (checkout: `$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/CONTEXT.md`)
+**Training glossary (exhaustive):** [`CONTEXT.md`](./CONTEXT.md)  
+**Play glossary:** [`portfolio-site` Dungeon Runner `CONTEXT.md`](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTEXT.md) (`$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/CONTEXT.md`)
 
 ## Sibling checkout
 
@@ -18,6 +18,7 @@ Default sibling layout: `../portfolio-site` and `../dungeon-runner`.
 
 | Topic | dungeon-runner | portfolio-site |
 | --- | --- | --- |
+| Consolidated ubiquitous language | [`UBIQUITOUS_LANGUAGE.md`](./UBIQUITOUS_LANGUAGE.md) | [`UBIQUITOUS_LANGUAGE.md`](https://github.com/enmaku/portfolio-site/blob/main/UBIQUITOUS_LANGUAGE.md) |
 | Play + envelope glossary | [`CONTEXT.md`](./CONTEXT.md) (training) | [`src/features/dungeon-runner/CONTEXT.md`](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTEXT.md) |
 | Cross-repo index | this file | [`CROSS_REPO.md`](https://github.com/enmaku/portfolio-site/blob/main/CROSS_REPO.md) |
 | Replay envelope v1 (normative fields) | cross-link in [`CONTEXT.md`](./CONTEXT.md) | [`src/features/dungeon-runner/CONTRACT.md`](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTRACT.md) |
@@ -55,12 +56,12 @@ Default sibling layout: `../portfolio-site` and `../dungeon-runner`.
 | **Actor seat id** | `actorSeatId` (CONTRACT field) | `seat-1`…`seat-4`; not the human player by number alone. |
 | **Python training sim** | (no glossary term) | Legacy `Match` here; playable **match** uses web engine only. |
 
-## Intentional divergences (do not unify)
+## Intentional divergences (documented, not unified)
 
-| Topic | dungeon-runner | portfolio-site | Cross-link |
+| Topic | dungeon-runner | portfolio-site | Canonical doc |
 | --- | --- | --- | --- |
-| Casual “game” vs **match** | Avoid “game” in training docs | **Match** is the product term | portfolio-site [`CONTEXT.md` — Match](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTEXT.md) |
-| **Empty dungeon run** | Python sim historically scored runner **loss** on empty pile | Table/web: runner **win** | portfolio-site Flagged ambiguities → dungeon-runner training note |
+| Casual “game” vs **match** | Use **match** in product-chain docs | **Match** is the product term | Both [`UBIQUITOUS_LANGUAGE.md`](./UBIQUITOUS_LANGUAGE.md) |
+| **Empty dungeon pile at bidding end** | **Sim empty-pile forfeit** (not **match over**) | **Web game engine**: immediate **dungeon run** success | Both `UBIQUITOUS_LANGUAGE.md` flagged sections |
 | **Catalog** without qualifier | **Model catalog** (weights) | **Game data catalog** (equipment/monsters) | Always use full term in either repo |
 | `version` on envelope | Ingest: integer `1` only | Import: `version !== 1` (looser types) | Eligibility must match; type strictness may differ at edge types—see pipeline doc **Intentional strictness** |
 | Replay envelope `version` | Skip unsupported at ingest | Export always integer `1` | v2 roadmap only in portfolio-site CONTRACT |
