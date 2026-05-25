@@ -1,55 +1,239 @@
 # dungeon-runner
 
-A Python implementation of [*Welcome to the Dungeon*](https://iellogames.com/games/welcome-to-the-dungeon/) (IELLO / Oink Games) with a **match engine**, a [**PettingZoo**](https://pettingzoo.farama.org/) **AEC** environment, optional **TensorFlow / Keras** PPO training (hand-written update loop, not a third-party RL library as the main path), optional **pygame** UI, and **TensorBoard** run metrics.
+Python repo for training neural opponents in a digital implementation of IELLO Games' [Welcome to the Dungeon](https://iellogames.com/games/welcome-to-the-dungeon/). This repo owns match simulation (legacy Python), BC/PPO training, replay ingest from human play, and gated promotion of Keras weights. The playable match UI, authoritative web game engine, replay export, and TensorFlow.js deployment live in the sibling [portfolio-site](https://github.com/enmaku/portfolio-site) repo.
 
-## What’s in the tree
+## Tech stack
 
-| Area | Location |
-|------|----------|
-| Game rules and state | `src/dungeon_runner/match.py`, `actions.py`, `catalog.py`, … |
-| PettingZoo env | `src/dungeon_runner/pettingzoo_aec.py` — `WtdAECEnv` (2–4 players) |
-| RL: observations, action codec, PPO, model | `src/dungeon_runner/rl/` |
-| Bots | `src/dungeon_runner/bots/` (e.g. weighted-random) |
-| Table UI | `src/dungeon_runner/ui/pygame_view.py` (used by the play script, not by training) |
-| Scripts | `scripts/train.py` (PPO vs bot), `scripts/train_rllib.py` (PPO, Ray-parallel self-play, same Keras loop), `scripts/oscillate_train.py` (alternate those two; each run uses `logdir/1/`, `2/`, … only), `scripts/play_random_game.py` |
-| Rules reference (physical-game parity) | [`docs/welcome-to-the-dungeon.md`](docs/welcome-to-the-dungeon.md) |
-| Human replay training pipeline | [`docs/replay-pipeline.md`](docs/replay-pipeline.md) — staged CLI (`ingest`, `verify`, …); glossary in [`CONTEXT.md`](CONTEXT.md) |
+| Layer | Choice |
+| --- | --- |
+| Language | Python 3.10+ |
+| Package | setuptools editable install (`pip install -e .`) |
+| ML | TensorFlow / Keras (`PolicyValueModel`, custom PPO loop) |
+| Replay labels | Node harness importing portfolio-site web engine |
+| Training data | Parquet (`pyarrow`), gitignored under `data/` |
+| Legacy sim | PettingZoo AEC env, optional Ray-parallel rollouts |
+| Optional UI | pygame table view (`pip install -e ".[gui]"`) |
+| Tests | pytest |
+| Metrics | TensorBoard under `models/runs/<run_id>/tb/` |
 
-Tests live under `tests/`. The package is installable with **`pip install -e .`** ([`pyproject.toml`](pyproject.toml)); optional groups are `dev` (pytest), `gui` (pygame), `train` (TensorFlow, PettingZoo, Ray, etc.). A thin [`requirements.txt`](requirements.txt) installs the editable package plus pytest for a minimal dev setup.
+## Getting started
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev,train]"
+```
+
+For replay pipeline work you also need a sibling portfolio-site checkout and Node (verify/dataset harnesses invoke the web engine). Default layout:
+
+```
+../dungeon-runner
+../portfolio-site
+```
+
+### Environment variables
+
+Copy `.env.example` to `.env` at the repo root. The replay CLI loads it automatically.
+
+| Variable | Required for | Notes |
+| --- | --- | --- |
+| `FIREBASE_DATABASE_URL` | `ingest` (live RTDB) | Same value as portfolio-site `VITE_FIREBASE_DATABASE_URL`. Not needed for `ingest --from-export`. |
+| `PORTFOLIO_SITE_ROOT` | `verify`, `dataset`, Node harness tests | Absolute path to portfolio-site checkout (web engine root). |
+
+Ingest uses RTDB REST read only (no Firebase Auth in v1). Verify and dataset fail fast if `PORTFOLIO_SITE_ROOT` is unset.
+
+Optional dependency groups in [`pyproject.toml`](pyproject.toml):
+
+| Group | Installs | Use when |
+| --- | --- | --- |
+| `dev` | pytest | Running tests |
+| `gui` | pygame | `play_random_game.py --gui` |
+| `train` | TensorFlow, PettingZoo, Ray, TensorBoard | BC/PPO stages and legacy `scripts/train*.py` |
+
+Minimal dev setup: [`requirements.txt`](requirements.txt) (`pip install -e .` + pytest).
+
+## What this repo does
+
+| Track | Purpose |
+| --- | --- |
+| Replay pipeline | Ingest human completed match replays from portfolio-site, verify against the web game engine, build Parquet training rows, run BC/PPO, gated-promote weights |
+| Legacy Python sim | In-repo `Match` + PettingZoo env for experiments and sim eval gates; not maintained for parity with the browser engine |
+| Maintainer scripts | `scripts/train*.py`, `play_random_game.py`, `replay-train-and-release.sh` for ad hoc runs outside the staged CLI |
+
+Human play happens in portfolio-site at `/projects/dungeon-runner`. Finished matches upload to RTDB `dungeonRunnerCompletedMatches`; this repo pulls them for imitation learning.
 
 ## Replay training pipeline
 
-Human **completed match replays** from portfolio-site are ingested, verified against the **web game engine**, turned into Parquet **derived training rows**, and used for BC/PPO training with optional **gated promotion** of weights under `models/`. Maintainer runbook: [`docs/replay-pipeline.md`](docs/replay-pipeline.md) (staged CLI, env vars, manifests, on-disk layout). Domain terms: [`UBIQUITOUS_LANGUAGE.md`](UBIQUITOUS_LANGUAGE.md) (consolidated), [`CONTEXT.md`](CONTEXT.md) (exhaustive training). Sibling: [`CROSS_REPO.md`](CROSS_REPO.md). Copy [`.env.example`](.env.example) to `.env` and set `FIREBASE_DATABASE_URL` (ingest) and `PORTFOLIO_SITE_ROOT` (verify/dataset).
+Maintainer runbook: [`docs/replay-pipeline.md`](docs/replay-pipeline.md). Domain terms: [`CONTEXT.md`](CONTEXT.md) (exhaustive) and [`UBIQUITOUS_LANGUAGE.md`](UBIQUITOUS_LANGUAGE.md) (consolidated).
 
-## Rules and behavior
+CLI entry point:
 
-Tournament rules, equipment, and phase flow that matter for the simulator (including what information each seat is allowed) are documented in the rules file above. The README only summarizes how this repo encodes that.
+```bash
+python -m dungeon_runner.replay.cli <stage> [--data-dir data/replays]
+```
 
-- **Bidding** runs in clockwise seat order with a single `agent_selection` in AEC. **Dungeon** actions are for the **runner** only; other agents do not act (see the rules link for the actual game). Training samples **2, 3, or 4** players per episode (`sample_episode` in `scripts/train.py`, `sample_episode_config` in `src/dungeon_runner/rl/rllib_keras_module.py`) so the policy sees varied table sizes.
-- **Partial observability:** the observation builder follows “honest” information per seat (e.g. your own dungeon adds, public pile count, not others’ hidden cards). The vector is fixed-size: **`observation.OBS_DIM`** (87 floats) with an action mask, described in `src/dungeon_runner/rl/observation.py`. It is **current state only**—no opponent history channel.
-- The pygame client lists each player’s own dungeon adds to align human play with the vector state (see the rules doc section on bidding information).
+| Stage | Purpose |
+| --- | --- |
+| `ingest` | Pull RTDB or `--from-export` JSON into raw envelope store + ingest manifest |
+| `verify` | Replay each pending envelope through the web game engine to `match-over` |
+| `eval_suite init` | Freeze held-out match ids (~20%) for replay eval metrics |
+| `eval_config init` | Freeze sim seeds, regression tolerance; replay accuracy floor set by first BC baseline |
+| `dataset` | Build derived training rows (Node labels → Parquet per match) |
+| `bc` | BC policy training → training run artifact under `models/runs/` |
+| `ppo` | BC-anchored PPO on Python sim (requires `--bc-run`) |
+| `publish` | Gated promotion to `models/<promoted version>/` + production latest symlink |
+| `run-all` | Orchestrate stages in order; PPO and publish are opt-in (`--with-ppo`, `--with-publish`) |
 
-## Training
+Bootstrap order on a fresh machine (after `.env`):
 
-- **`PolicyValueModel`** in `src/dungeon_runner/rl/model.py` is a single shared-weights policy–value network used for every active seat. Hyperparameters like hidden width use **`DEFAULT_PPO_HIDDEN`** in that file.
-- **`scripts/train.py`** runs a custom **PPO** loop: collects rollouts in-process against a **random** bot, logs TensorBoard scalars under `logdir/scalars/`, and saves **`logdir/policy.weights.h5`**. If `--weights` is omitted, it loads `logdir/policy.weights.h5` when that file exists.
-- **`scripts/train_rllib.py`** runs the **same** Keras PPO update but uses **Ray** to collect self-play rollouts in parallel. It is **not** RLlib’s PPO `Algorithm`—Ray is for **sampling** only, because Ray 2.5+ does not match this project’s portable `Model.save_weights` / `load_weights` workflow. On **macOS**, if workers spin up poorly, use Ray’s [local resource notes](https://docs.ray.io/en/latest/ray-core/configure.html#local-cluster-setup).
-- **Optimizer state is not saved**; switching between scripts or restarts you still load the same H5 **weights** but a fresh **Adam** state.
-- **`python scripts/oscillate_train.py runs/v0.1a`** (requires `[train]`) alternates the two training scripts. Each run uses **only** `logdir/1/`, `logdir/2/`, … (`--logdir` points at that folder, so H5 and TensorBoard stay under the number, not the run root). Segment `n>1` loads from `logdir/(n-1)/policy.weights.h5`. For `n=1`, if that file is missing, it is seeded from `logdir/policy.weights.h5` if present, else a fresh model. The run-root `policy.weights.h5` is never the file the trainers read or write; copy your starting weights there to seed a new `1/`.
+1. `ingest`
+2. `verify`
+3. `eval_suite init` then `eval_config init` (needs ≥2 verified match ids)
+4. `dataset`
+5. `bc` (optional `ppo`, optional `publish`)
 
-Reward scales are in `src/dungeon_runner/rl/rewards.py` and applied in `WtdAECEnv.step`: a larger bonus for a **second-success** match win than for **last one standing**; a small per-action shaping term on the active agent; dungeon fail milder than full match loss; same dungeon-success handling when a step ends the run (e.g. Omnipotence). TensorBoard tags include `loss/*`, `rollout/*` (e.g. `mean_reward`, `nn_transitions`), and `game/*` (e.g. win rate, episode length, truncation rate).
+Default `run-all` stops after `bc` so you can review metrics before promoting.
 
-**Smoke:** after `pip install -e ".[train]"`, `python scripts/train.py --logdir runs/smoke --updates 5` and open TensorBoard on `runs/smoke/scalars` if you want a short trace.
+Weight I/O uses repo-root `models/` (not `--data-dir`). Training data (raw replays, manifests, derived Parquet, eval artifacts) defaults to gitignored `data/replays/`.
 
-## Pygame (optional)
+Full stage flags, manifest shapes, skip-reason tables, and release handoff: [`docs/replay-pipeline.md`](docs/replay-pipeline.md).
 
-`pip install -e ".[gui]"` and run `play_random_game.py` with `--gui` for a table layout (facedown cards, equipment row, `--god` to reveal the deck, `--step-ms` / `--dungeon-step-ms` to slow automation).
+## Navigating the codebase
 
-## Out of scope here
+```
+.
+├── src/dungeon_runner/
+│   ├── match.py, actions.py, catalog.py, types_core.py   # Legacy Python rules sim
+│   ├── pettingzoo_aec.py                                 # WtdAECEnv (2–4 players)
+│   ├── bots/                                             # RandomBot and helpers
+│   ├── rl/                                               # Obs, action mask, PPO, PolicyValueModel
+│   ├── ui/pygame_view.py                                 # Optional table UI
+│   └── replay/
+│       ├── cli.py                                        # Pipeline entry point
+│       ├── ingest.py, verify.py, dataset.py              # Stages
+│       ├── bc/, ppo/, publish/, eval/                    # Training, gates, promotion
+│       ├── harness/                                      # Node scripts (verify, dataset build)
+│       └── web_engine.py                                 # PORTFOLIO_SITE_ROOT resolution
+├── scripts/                                              # Legacy trainers and training script
+├── tests/                                                # pytest; replay/ mirrors pipeline stages
+│   └── fixtures/replay/                                  # Verifier wiring fixtures
+├── models/                                               # Promoted semver dirs, runs/
+├── data/                                                 # Training data root
+└── docs/
+    ├── replay-pipeline.md
+    ├── welcome-to-the-dungeon.md                         # Physical-game rules reference
+    └── adr/
+```
 
-- Multi-seated **human** hot-seat routing: the UI and scripts assume a simple human + bots or full-bot setup.
-- **CI** and external experiment services are not set up; logs and weights are local and TensorBoard-only by default.
-- A separate **web** or browser client, if you ever want one, would be another project.
+### Where to look by task
+
+| Task | Start here |
+| --- | --- |
+| Add or change a pipeline stage | `src/dungeon_runner/replay/cli.py`, stage module under `replay/` |
+| Ingest eligibility / skip reasons | `replay/eligibility.py`, parity tests in `tests/replay/ingest/` |
+| Replay verification | `replay/verify.py`, `replay/harness/verify_match.mjs` |
+| Dataset / derived rows | `replay/dataset.py`, `replay/harness/build_match_dataset.mjs` |
+| BC or PPO training | `replay/bc/`, `replay/ppo/` |
+| Promotion gates / publish | `replay/publish/`, `replay/eval/gate_evaluator.py` |
+| Policy network architecture | `rl/model.py` (`DEFAULT_PPO_HIDDEN`, 87→26 layout) |
+| Observation vector (Python sim) | `rl/observation.py` (`OBS_DIM = 87`) |
+| Legacy self-play PPO scripts | `scripts/train.py`, `scripts/train_rllib.py`, `scripts/oscillate_train.py` |
+| Cross-repo release | [`docs/replay-pipeline.md` § Release](docs/replay-pipeline.md#release-to-portfolio-site), portfolio-site [`scripts/MODEL_RELEASE.md`](https://github.com/enmaku/portfolio-site/blob/main/scripts/MODEL_RELEASE.md) |
+| Replay envelope field rules | portfolio-site [`CONTRACT.md`](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTRACT.md) (normative); ingest extensions in pipeline doc |
+
+### Domain language
+
+Read before naming things or writing maintainer docs:
+
+- [`UBIQUITOUS_LANGUAGE.md`](UBIQUITOUS_LANGUAGE.md) — shared product-chain terms with portfolio-site
+- [`CONTEXT.md`](CONTEXT.md) — exhaustive training pipeline glossary
+- [`CROSS_REPO.md`](CROSS_REPO.md) — sibling env vars, doc index, intentional divergences
+- [`docs/welcome-to-the-dungeon.md`](docs/welcome-to-the-dungeon.md) — tabletop rules this sim encodes
+
+Non-obvious architectural choices:
+
+- [ADR 0001](docs/adr/0001-web-game-engine-authoritative.md) — web engine is rules truth; Python sim is legacy
+- [ADR 0002](docs/adr/0002-promoted-version-semver-and-latest-symlink.md) — promoted semver dirs and `models/latest` symlink
+
+## Web game engine vs Python sim
+
+Replay verify, dataset labels, and replay eval metrics use the portfolio-site JavaScript kernel via Node (`engine/kernel.js`, `nn/policyAdapter.js`). Python `Match` is the Python training sim: still used for PPO rollouts and sim regression gates in v1, but not kept in parity with browser play. See [ADR 0001](docs/adr/0001-web-game-engine-authoritative.md).
+
+Implication for contributors: rules changes belong in portfolio-site; this repo consumes replay envelopes and orchestrates Node harnesses—it does not fork game logic for the replay pipeline.
+
+## Models layout
+
+```
+models/
+  latest/                    # symlink → ../<promoted version>/ (production latest)
+  runs/<run_id>/             # bc-* / ppo-* training run artifacts
+    policy.weights.h5
+    metrics.json
+    tb/
+  <promoted version>/        # gated promotion output (v0.2, v0.2.01, …)
+  promotions.jsonl           # append-only promotion ledger
+```
+
+Gated promotion (`publish`) copies candidate weights here only when promotion gates pass (replay accuracy floor + sim non-regression vs latest). Each training run id may promote at most once.
+
+After promote, sync TF.js weights in portfolio-site (`npm run sync-dungeon-runner-model`). That step is not implemented in this repo.
+
+## portfolio-site sibling
+
+| This repo | portfolio-site |
+| --- | --- |
+| Replay ingest, verify, dataset, BC/PPO, gated promotion | Playable match UI, web game engine, replay envelope export |
+| Keras H5 under `models/<promoted version>/` | TF.js trees under `public/models/dungeon-runner/` |
+| `models/latest` symlink (production latest) | `public/models/dungeon-runner/latest/` (web deployed latest) |
+| `PORTFOLIO_SITE_ROOT` in `.env` | `DUNGEON_RUNNER_ROOT` in `.env` for model sync |
+
+Expected sibling layout: `../portfolio-site` (set `PORTFOLIO_SITE_ROOT` here; set `DUNGEON_RUNNER_ROOT` there).
+
+Two-repo release: promote here, then follow portfolio-site [`scripts/MODEL_RELEASE.md`](https://github.com/enmaku/portfolio-site/blob/main/scripts/MODEL_RELEASE.md). Cross-repo index: [`CROSS_REPO.md`](CROSS_REPO.md).
+
+Play the shipped game: [Focus Disorder — Dungeon Runner](https://focusdisorder.com/#/projects/dungeon-runner) (or local `npm run dev` in portfolio-site).
+
+## Testing
+
+```bash
+pytest                          # full suite
+pytest tests/replay/ -q         # replay pipeline only
+pytest tests/test_match_e2e.py  # legacy Python sim
+```
+
+Verify and dataset integration tests need `PORTFOLIO_SITE_ROOT` pointing at a portfolio-site checkout. With it set, verifier tests also replay the canonical golden fixture at `portfolio-site/src/features/dungeon-runner/engine/fixtures/golden-seed-4242-two-pass.json`.
+
+Node harness unit test (no portfolio-site required):
+
+```bash
+node --test tests/replay/harness/replay_step_apply_seat.test.mjs
+```
+
+## Legacy training and pygame (optional)
+
+Experimental paths outside the canonical replay CLI:
+
+| Script | Purpose |
+| --- | --- |
+| `scripts/train.py` | In-process PPO vs random bot; writes `logdir/policy.weights.h5` |
+| `scripts/train_rllib.py` | Same Keras PPO update with Ray-parallel self-play sampling |
+| `scripts/oscillate_train.py` | Alternate the two trainers into numbered subdirs under a run root |
+| `scripts/play_random_game.py` | CLI match; add `--gui` for pygame table view |
+| `scripts/replay-train-and-release.sh` | Full pipeline + optional portfolio-site TF.js sync (maintainer convenience) |
+
+Smoke after `pip install -e ".[train]"`:
+
+```bash
+python scripts/train.py --logdir runs/smoke --updates 5
+tensorboard --logdir runs/smoke/scalars
+```
+
+Legacy sim notes:
+
+- Bidding runs clockwise with partial observability per seat (`rl/observation.py`, 87 floats + 26-action mask).
+- Training samples 2–4 players per episode for varied table sizes.
+- Optimizer state is not saved across script restarts; H5 weights are.
+- Reward shaping lives in `rl/rewards.py`.
 
 ## Official rulebook
 
