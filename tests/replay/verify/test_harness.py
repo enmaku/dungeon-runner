@@ -125,7 +125,7 @@ for (const type of types) {{
   const legal = getLegalActions(state, actor);
   const sample = legal.find((a) => a.type === type);
   if (!sample) continue;
-  if (encodeActionIndex(state, actor, sample) < 0) failed.push(type);
+  if (encodeActionIndex(state, sample) < 0) failed.push(type);
 }}
 if (failed.length) {{
   console.error('unmapped:', failed.join(','));

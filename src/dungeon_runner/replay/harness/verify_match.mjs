@@ -96,7 +96,7 @@ function main() {
         }
 
         const actor = { seatId: actorSeatId }
-        const index = encodeActionIndex(state, actor, action)
+        const index = encodeActionIndex(state, action)
         if (index < 0) {
           fail('unmapped_action_type', step)
         }

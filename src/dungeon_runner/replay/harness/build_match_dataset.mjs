@@ -116,7 +116,7 @@ function main() {
         const legalActions = getLegalActions(state, actor)
         const obs = buildPolicyObservation(state, actor)
         const mask = buildPolicyLegalMask(state, actor, legalActions)
-        const actionIndex = encodeActionIndex(state, actor, action)
+        const actionIndex = encodeActionIndex(state, action)
         if (actionIndex < 0) {
           fail('unmapped_action_type', step)
         }
