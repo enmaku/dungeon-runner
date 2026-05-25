@@ -9,8 +9,9 @@ import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveReplayStepApplySeat } from './replay_step_apply_seat.mjs'
 
-const ENCODING_VERSION = 1
+const ENCODING_VERSION = 2
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 function fail(code, step = undefined, detail = undefined) {
@@ -108,37 +109,48 @@ function main() {
           )
         }
 
-        if (actorSeatId !== state.turn.activeSeatId) {
-          fail('actor_mismatch', step)
+        let applySeatId
+        let skipDatasetRow
+        try {
+          const resolved = resolveReplayStepApplySeat(state, { actorSeatId, action })
+          applySeatId = resolved.applySeatId
+          skipDatasetRow = resolved.skipDatasetRow
+          if (!resolved.skipActorMismatchCheck && actorSeatId !== state.turn.activeSeatId) {
+            fail('actor_mismatch', step)
+          }
+        } catch (err) {
+          fail('engine_error', step, err.message)
         }
 
-        const actor = { seatId: actorSeatId }
-        const legalActions = getLegalActions(state, actor)
-        const obs = buildPolicyObservation(state, actor)
-        const mask = buildPolicyLegalMask(state, actor, legalActions)
+        const actor = { seatId: applySeatId }
         const actionIndex = encodeActionIndex(state, action)
         if (actionIndex < 0) {
           fail('unmapped_action_type', step)
         }
 
-        const isHuman = actorSeatId === humanSeatId
-        const modelId =
-          typeof action.modelId === 'string' && action.modelId.length > 0
-            ? action.modelId
-            : null
+        if (!skipDatasetRow) {
+          const legalActions = getLegalActions(state, actor)
+          const obs = buildPolicyObservation(state, actor)
+          const mask = buildPolicyLegalMask(state, actor, legalActions)
+          const isHuman = applySeatId === humanSeatId
+          const modelId =
+            typeof action.modelId === 'string' && action.modelId.length > 0
+              ? action.modelId
+              : null
 
-        rows.push({
-          step,
-          seat: actorSeatId,
-          obs,
-          mask,
-          policy_action_index: actionIndex,
-          phase: state.phase,
-          subphase: subphaseAt(state),
-          is_human: isHuman,
-          model_id: modelId,
-          nn_debug: null,
-        })
+          rows.push({
+            step,
+            seat: applySeatId,
+            obs,
+            mask,
+            policy_action_index: actionIndex,
+            phase: state.phase,
+            subphase: subphaseAt(state),
+            is_human: isHuman,
+            model_id: modelId,
+            nn_debug: null,
+          })
+        }
 
         const result = applyAction(state, action, actor)
         if (!result.ok) {

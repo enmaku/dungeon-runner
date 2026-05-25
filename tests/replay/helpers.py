@@ -14,6 +14,7 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "replay"
 # Committed verify harness outcomes (None = verified).
 VERIFY_FIXTURE_OUTCOMES: dict[str, str | None] = {
     "valid-match-over-seed42.json": None,
+    "legacy-pick-actor-mismatch.json": None,
     "match-not-over.json": "match_not_over",
     "actor-mismatch.json": "actor_mismatch",
     "rng-chain-break.json": "rng_chain_break",

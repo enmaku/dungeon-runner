@@ -145,6 +145,20 @@ Per match: `node verify_match.mjs raw/{matchId}.json` → stdout JSON `{ "ok": t
 
 Step loop: for each history entry check `actorSeatId`, RNG chain (`rngStepBefore` / `rngStepAfter` vs `state.rng.step`), `encodeActionIndex` ≥ 0, `applyAction` ok → assert `phase === match-over`.
 
+#### Pick-adventurer harness exception
+
+**Pick-adventurer harness issue:** [dungeon-runner #22](https://github.com/enmaku/dungeon-runner/issues/22).
+
+Shared helper: `src/dungeon_runner/replay/harness/replay_step_apply_seat.mjs` (`resolveReplayStepApplySeat`). Verify and dataset harnesses import it.
+
+| Topic | Behavior |
+|-------|----------|
+| Training target | `CHOOSE_NEXT_ADVENTURER` is **not** a BC/PPO target — picker identity / seat is not used for imitation |
+| Verify apply seat | Phase `pick-adventurer` + action `CHOOSE_NEXT_ADVENTURER`: skip strict `actor_mismatch`; apply via `state.pickAdventurer.activeSeatId` instead of `actorSeatId` |
+| Verify unchanged | RNG chain, `encodeActionIndex`, and `applyAction` legality checks unchanged |
+| Dataset | Same apply-seat rule; **do not** emit derived training rows for pick steps (match state still advances) |
+| Legacy corpus | Pre-[#146](https://github.com/enmaku/dungeon-runner/issues/146) envelopes with wrong picker `actorSeatId` on pick steps can verify again; stale `SACRIFICE` and pre-[#144](https://github.com/enmaku/dungeon-runner/issues/144) polymorph failures remain out of scope |
+
 **RNG re-check:** after a successful `applyAction`, the harness compares `result.state.rng.step` to the entry’s `rngStepAfter` (same failure code `rng_chain_break` as a broken chain at the next step’s `rngStepBefore`). Ingest eligibility only checks recorded `rngStepBefore` / `rngStepAfter` shape and continuity; it does not run the engine.
 
 Does **not** re-run ingest structural checks (`importReplayEnvelope`).
@@ -169,6 +183,7 @@ Committed under `tests/fixtures/replay/`:
 | `rng-chain-break.json` | `rng_chain_break` |
 | `unmapped-action-type.json` | `unmapped_action_type` |
 | `illegal-action.json` | `illegal_action` |
+| `legacy-pick-actor-mismatch.json` | verified |
 
 With `PORTFOLIO_SITE_ROOT` set, tests also replay portfolio-site `engine/fixtures/golden-seed-4242-two-pass.json` as a v1 envelope (history from `expected.history`). That fixture ends before **match over**; verify must report `match_not_over` with no per-step failure.
 
@@ -281,10 +296,10 @@ python -m dungeon_runner.replay.cli dataset --all [--data-dir data/replays]
 - Requires `PORTFOLIO_SITE_ROOT` and **eval suite artifact** (exit `1` if missing).
 - Does not require **eval config artifact** (BC/sim eval only).
 - **Dataset build** invokes **web game engine** per verified match; writes `derived/{matchId}/rows.parquet` + `meta.json` (**dataset encoding version**, `row_count`, `built_at`).
-- All history **action** steps → **derived training rows**; `is_human=true` only on **human step** rows (seat resolved at build time). See [CONTRACT.md](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTRACT.md#replay-envelope-contract-v1).
+- All history **action** steps → **derived training rows** except `pick-adventurer` + `CHOOSE_NEXT_ADVENTURER` (not a training target; see [Pick-adventurer harness exception](#pick-adventurer-harness-exception)); apply seat via `replay_step_apply_seat.mjs`, state still advances. `is_human=true` only on **human step** rows (seat resolved at build time). See [CONTRACT.md](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTRACT.md#replay-envelope-contract-v1).
 - Staging under `derived/.staging/` — all pending matches in the run succeed or none are committed (**dataset run atomicity**).
 
-**`rows.parquet` columns (encoding v1):** `step`, `seat`, `obs` (87 floats), `mask` (26 ints), `policy_action_index`, `phase`, `subphase`, `is_human`, `model_id`, `nn_debug`, `match_id`, `split` (`train` / `val` from **eval suite artifact**).
+**`rows.parquet` columns (encoding v2):** `step`, `seat`, `obs` (87 floats), `mask` (26 ints), `policy_action_index`, `phase`, `subphase`, `is_human`, `model_id`, `nn_debug`, `match_id`, `split` (`train` / `val` from **eval suite artifact**).
 
 **Manual re-dataset:** delete `derived/{matchId}/`, keep raw + verify `verified`, re-run `dataset`.
 

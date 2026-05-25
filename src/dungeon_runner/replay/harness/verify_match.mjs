@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveReplayStepApplySeat } from './replay_step_apply_seat.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -91,11 +92,18 @@ function main() {
           )
         }
 
-        if (actorSeatId !== state.turn.activeSeatId) {
-          fail('actor_mismatch', step)
+        let applySeatId
+        try {
+          const resolved = resolveReplayStepApplySeat(state, { actorSeatId, action })
+          applySeatId = resolved.applySeatId
+          if (!resolved.skipActorMismatchCheck && actorSeatId !== state.turn.activeSeatId) {
+            fail('actor_mismatch', step)
+          }
+        } catch (err) {
+          fail('engine_error', step, err.message)
         }
 
-        const actor = { seatId: actorSeatId }
+        const actor = { seatId: applySeatId }
         const index = encodeActionIndex(state, action)
         if (index < 0) {
           fail('unmapped_action_type', step)

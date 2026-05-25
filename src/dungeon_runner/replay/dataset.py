@@ -28,7 +28,7 @@ from dungeon_runner.replay.web_engine import (
     require_portfolio_site_root,
 )
 
-DATASET_ENCODING_VERSION = 1
+DATASET_ENCODING_VERSION = 2
 
 _ROW_SCHEMA = pa.schema(
     [

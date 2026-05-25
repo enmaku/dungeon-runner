@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -23,8 +24,8 @@ from dungeon_runner.replay.dataset import (
 )
 from dungeon_runner.replay.eval.derived_store import load_match_rows
 from dungeon_runner.replay.eval.eval_suite import init_eval_suite
-from dungeon_runner.replay.web_engine import default_harness_path
-from tests.replay.helpers import seed_ingested, seed_verify_state
+from dungeon_runner.replay.web_engine import default_harness_path, default_node_command
+from tests.replay.helpers import FIXTURES, seed_ingested, seed_verify_state
 
 
 def _mock_dataset_harness(tmp_path: Path, responses: dict[str, dict]) -> Path:
@@ -488,14 +489,97 @@ def test_node_harness_valid_match_row_count(tmp_path: Path, skip_without_portfol
     assert match_id in summary.built
     meta = load_derived_meta(data_dir, match_id)
     assert meta is not None
-    assert meta.row_count == 5
+    assert meta.row_count == 48
     table = pq.read_table(derived_rows_path(data_dir, match_id))
-    assert table.num_rows == 5
+    assert table.num_rows == 48
     assert len(table.column("obs")[0].as_py()) == 87
     assert len(table.column("mask")[0].as_py()) == 26
-    assert table.column("is_human").to_pylist() == [True, False, False, True, True]
+    assert table.column("is_human").to_pylist() == [
+        False,
+        False,
+        True,
+        True,
+        False,
+        True,
+        True,
+        True,
+        True,
+        True,
+        False,
+        False,
+        True,
+        True,
+        False,
+        False,
+        True,
+        True,
+        False,
+        False,
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        True,
+        True,
+        False,
+        False,
+        True,
+        True,
+        False,
+        False,
+        True,
+        True,
+        False,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+    ]
     assert "policy_action_index" in table.column_names
 
     rows = load_match_rows(derived_rows_path(data_dir, match_id))
-    assert len(rows) == 5
+    assert len(rows) == 48
     assert all(r.split in ("train", "val") for r in rows)
+
+
+@pytest.mark.skipif(
+    not os.environ.get("PORTFOLIO_SITE_ROOT", "").strip(),
+    reason="PORTFOLIO_SITE_ROOT not set",
+)
+def test_node_harness_skips_pick_adventurer_rows(skip_without_portfolio: Path):
+    fixture = FIXTURES / "valid-match-over-seed42.json"
+    envelope = json.loads(fixture.read_text(encoding="utf-8"))
+    pick_steps = {
+        i
+        for i, entry in enumerate(envelope.get("history", []))
+        if entry.get("action", {}).get("type") == "CHOOSE_NEXT_ADVENTURER"
+    }
+    assert pick_steps == {0, 9, 30}
+
+    proc = subprocess.run(
+        [
+            *default_node_command(),
+            str(default_harness_path().parent / "build_match_dataset.mjs"),
+            str(fixture),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PORTFOLIO_SITE_ROOT": str(skip_without_portfolio)},
+    )
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout.strip())
+    assert payload.get("ok") is True
+    rows = payload.get("rows", [])
+    row_steps = {row["step"] for row in rows}
+    assert pick_steps.isdisjoint(row_steps)
+    assert all(row.get("phase") != "pick-adventurer" for row in rows)
