@@ -10,6 +10,22 @@ Python repo for match simulation, RL training, and model artifacts. The playable
 A finished game exported as a **replay envelope** (seed, setup, history, version) keyed by match id in RTDB or Firebase export JSON.
 _Avoid_: "game log", "save file"
 
+**Completed match outcome**:
+Write-once Firestore **analytics snapshot** at **match over** (portfolio-site authors CONTRACT + `buildMatchOutcomeRecord`; dungeon-runner **derive_match_outcome** replays then calls the same builder). Verbose denormalization—setup, seats, terminal **scoreboard**, outcome fields, **history** rollups, `equipmentSacrificeCount`, optional `matchIdEpochMs`—not the full **history** array. **`humanWon`** is true only when **match over end variant** is `victory`. See portfolio-site Dungeon Runner `CONTEXT.md`.
+_Avoid_: "summary", "telemetry"; conflating with **replay envelope**; skinny v1 that forces repeated backfills; embedding full **history** on the outcome doc; duplicating **replay envelope version** or **seed** on the outcome
+
+**Completed match outcome archive**:
+Firestore collection `dungeonRunnerMatchOutcomes/{matchId}`; doc id matches RTDB **completed match replay** key. Browser create-only; **backfill-outcomes** skips existing docs (no overwrite in v1; maintainer deletes doc to re-derive). Outcome `createdAt` copied from envelope `createdAt` on backfill.
+_Avoid_: Different match id than replay archive; expecting training ingest to read this collection in v1; backfill upsert that fights client create-only semantics; outcome `createdAt` from wall clock when envelope already has a timestamp
+
+**Equipment sacrifice count**:
+Integer on **completed match outcome**: count of `SACRIFICE` actions in **history** at derive time (live terminal state or replay replay). See portfolio-site Dungeon Runner `CONTEXT.md`.
+_Avoid_: Dungeon equipment plays; envelope-only inference without stepping **history**
+
+**Match over end variant**:
+`victory` | `defeat-not-eliminated` | `elimination-end-human` — how the **human player seat** experienced **match over**; stored as `endVariant` on **completed match outcome**.
+_Avoid_: Deriving from **replay envelope** without replaying to **match over**; treating **elimination end (human)** as ordinary defeat copy only
+
 **Replay envelope**:
 The versioned contract for a completed match (portfolio-site authors the shape; dungeon-runner ingests and verifies it).
 _Avoid_: "replay JSON" without version context
@@ -429,6 +445,9 @@ _Avoid_: "pipeline complete" without a promoted model
 ## Relationships
 
 - A **completed match replay** is ingested raw, then verified, then yields many **derived training rows**
+- Each **match** may have one **completed match replay** (RTDB) and one **completed match outcome** (Firestore) with the same match id; training ingest uses the replay only
+- **Completed match outcome** browser create-only; dungeon-runner **backfill-outcomes** writes via Admin SDK (skip existing docs)
+- **derive_match_outcome** imports portfolio-site **`buildMatchOutcomeRecord`** through **web engine root** (same Node bridge as **replay verifier**)
 - **Gated promotion** in dungeon-runner precedes **TF.js model sync** (separate portfolio-site step)
 - Each **TF.js model sync** after promote writes semver TF.js and, when the id matches **production latest**, overwrites **web deployed latest**
 - **Two-repo model release** follows **gated promotion** and is documented for **Epic v1 success bar**
