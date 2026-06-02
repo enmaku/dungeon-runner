@@ -35,12 +35,14 @@ def test_links_portfolio_contract_and_issue_128(md: str) -> None:
 
 def test_documents_env_vars(md: str) -> None:
     assert "FIREBASE_DATABASE_URL" in md
+    assert "GOOGLE_APPLICATION_CREDENTIALS" in md
     assert "PORTFOLIO_SITE_ROOT" in md
 
 
 def test_documents_all_cli_stages(md: str) -> None:
     for stage in (
         "ingest",
+        "backfill-outcomes",
         "verify",
         "eval_suite",
         "eval_config",
@@ -214,9 +216,57 @@ def test_related_links_portfolio_context_and_adr_0001(md: str) -> None:
 def test_env_example_documents_both_pipeline_vars() -> None:
     text = ENV_EXAMPLE.read_text(encoding="utf-8")
     assert "FIREBASE_DATABASE_URL" in text
+    assert "GOOGLE_APPLICATION_CREDENTIALS" in text
     assert "PORTFOLIO_SITE_ROOT" in text
     assert "ingest" in text.lower()
     assert "verify" in text.lower() or "dataset" in text.lower()
+
+
+def _backfill_section(md: str) -> str:
+    return md.split("## Backfill outcomes", 1)[1].split("\n## ", 1)[0]
+
+
+def test_backfill_section_documents_rtdb_shallow_and_no_force(md: str) -> None:
+    section = _backfill_section(md)
+    assert "dungeonRunnerCompletedMatches.json?shallow=true" in section
+    assert "dungeonRunnerMatchOutcomes" in section
+    assert "no `--force`" in section
+    assert "would write" in section
+    assert "would skip" in section
+    assert "github.com/enmaku/dungeon-runner/issues/25" in section
+
+
+def test_backfill_section_links_match_outcome_contract(md: str) -> None:
+    section = _backfill_section(md)
+    assert "CONTRACT.md#match-outcome-record-v1" in section
+    assert (
+        "$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/CONTRACT.md"
+        in section
+    )
+
+
+def test_backfill_section_links_parent_issues(md: str) -> None:
+    section = _backfill_section(md)
+    assert "github.com/enmaku/dungeon-runner/issues/23" in section
+    assert "github.com/enmaku/portfolio-site/issues/158" in section
+
+
+def test_backfill_section_documents_create_only_and_skip(md: str) -> None:
+    section = _backfill_section(md)
+    assert "create-only" in section.lower() or "create only" in section.lower()
+    assert "skip" in section.lower()
+
+
+def test_backfill_section_documents_cli_flags(md: str) -> None:
+    section = _backfill_section(md)
+    assert "--dry-run" in section
+    assert "--limit" in section
+
+
+def test_readme_points_to_backfill_subsection() -> None:
+    text = README.read_text(encoding="utf-8")
+    assert "backfill-outcomes" in text
+    assert "docs/replay-pipeline.md#backfill-outcomes" in text
 
 
 def test_readme_has_replay_training_pipeline_section() -> None:

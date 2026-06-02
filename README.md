@@ -37,8 +37,9 @@ Copy `.env.example` to `.env` at the repo root. The replay CLI loads it automati
 
 | Variable | Required for | Notes |
 | --- | --- | --- |
-| `FIREBASE_DATABASE_URL` | `ingest` (live RTDB) | Same value as portfolio-site `VITE_FIREBASE_DATABASE_URL`. Not needed for `ingest --from-export`. |
-| `PORTFOLIO_SITE_ROOT` | `verify`, `dataset`, Node harness tests | Absolute path to portfolio-site checkout (web engine root). |
+| `FIREBASE_DATABASE_URL` | `ingest` (live RTDB), `backfill-outcomes` | Same value as portfolio-site `VITE_FIREBASE_DATABASE_URL`. Not needed for `ingest --from-export`. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | `backfill-outcomes` | Path to Firebase service account JSON (Firestore write). |
+| `PORTFOLIO_SITE_ROOT` | `verify`, `dataset`, `backfill-outcomes`, `derive_match_outcome`, Node harness tests | Absolute path to portfolio-site checkout (web engine root). |
 
 Ingest uses RTDB REST read only (no Firebase Auth in v1). Verify and dataset fail fast if `PORTFOLIO_SITE_ROOT` is unset.
 
@@ -75,6 +76,7 @@ python -m dungeon_runner.replay.cli <stage> [--data-dir data/replays]
 | Stage | Purpose |
 | --- | --- |
 | `ingest` | Pull RTDB or `--from-export` JSON into raw envelope store + ingest manifest |
+| `backfill-outcomes` | Derive **completed match outcome** from RTDB replays → Firestore (`dungeonRunnerMatchOutcomes`; skip existing docs) — see [Backfill outcomes](docs/replay-pipeline.md#backfill-outcomes) |
 | `verify` | Replay each pending envelope through the web game engine to `match-over` |
 | `eval_suite init` | Freeze held-out match ids (~20%) for replay eval metrics |
 | `eval_config init` | Freeze sim seeds, regression tolerance; replay accuracy floor set by first BC baseline |
@@ -96,7 +98,7 @@ Default `run-all` stops after `bc` so you can review metrics before promoting.
 
 Weight I/O uses repo-root `models/` (not `--data-dir`). Training data (raw replays, manifests, derived Parquet, eval artifacts) defaults to gitignored `data/replays/`.
 
-Full stage flags, manifest shapes, skip-reason tables, and release handoff: [`docs/replay-pipeline.md`](docs/replay-pipeline.md).
+Full stage flags, manifest shapes, skip-reason tables, Firestore backfill (`backfill-outcomes`, env/credentials), and release handoff: [`docs/replay-pipeline.md`](docs/replay-pipeline.md) ([match outcomes §](docs/replay-pipeline.md#backfill-outcomes)).
 
 ## Navigating the codebase
 
@@ -201,12 +203,19 @@ pytest tests/replay/ -q         # replay pipeline only
 pytest tests/test_match_e2e.py  # legacy Python sim
 ```
 
-Verify and dataset integration tests need `PORTFOLIO_SITE_ROOT` pointing at a portfolio-site checkout. With it set, verifier tests also replay the canonical golden fixture at `portfolio-site/src/features/dungeon-runner/engine/fixtures/golden-seed-4242-two-pass.json`.
+Verify, dataset, and `derive_match_outcome` harness tests need `PORTFOLIO_SITE_ROOT` pointing at a portfolio-site checkout. With it set, verifier tests also replay the canonical golden fixture at `portfolio-site/src/features/dungeon-runner/engine/fixtures/golden-seed-4242-two-pass.json`. Pytest collects portfolio-gated harness tests under `tests/replay/` (including `tests/replay/harness/test_derive_match_outcome.py`); they skip cleanly when `PORTFOLIO_SITE_ROOT` is unset, same as `tests/replay/verify/test_harness.py`.
 
-Node harness unit test (no portfolio-site required):
+Node harness unit tests (no portfolio-site required):
 
 ```bash
 node --test tests/replay/harness/replay_step_apply_seat.test.mjs
+```
+
+`derive_match_outcome` parity/golden tests (portfolio-site required):
+
+```bash
+pytest tests/replay/harness/test_derive_match_outcome.py -q
+PORTFOLIO_SITE_ROOT=/path/to/portfolio-site node --test tests/replay/harness/derive_match_outcome.test.mjs
 ```
 
 ## Legacy training and pygame (optional)

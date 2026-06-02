@@ -7,11 +7,8 @@
  */
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
-import { resolve, dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { resolveReplayStepApplySeat } from './replay_step_apply_seat.mjs'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
+import { resolve, join } from 'node:path'
+import { replayEnvelopeToMatchOver } from './replay_to_match_over.mjs'
 
 function fail(code, step = undefined, detail = undefined) {
   const failure = { code }
@@ -65,68 +62,14 @@ function main() {
         fail('engine_error', undefined, err.message)
       }
 
-      const history = envelope.history ?? []
-      let previousAfter = null
-
-      for (let step = 0; step < history.length; step += 1) {
-        const entry = history[step]
-        const { rngStepBefore, rngStepAfter, actorSeatId, action } = entry
-
-        if (
-          !Number.isInteger(rngStepBefore) ||
-          !Number.isInteger(rngStepAfter) ||
-          rngStepAfter <= rngStepBefore
-        ) {
-          fail('rng_chain_break', step)
-        }
-        if (previousAfter !== null && rngStepBefore !== previousAfter) {
-          fail('rng_chain_break', step)
-        }
-        previousAfter = rngStepAfter
-
-        if (state.rng.step !== rngStepBefore) {
-          fail(
-            'rng_chain_break',
-            step,
-            `engine rng step ${state.rng.step} != recorded rngStepBefore ${rngStepBefore}`,
-          )
-        }
-
-        let applySeatId
-        try {
-          const resolved = resolveReplayStepApplySeat(state, { actorSeatId, action })
-          applySeatId = resolved.applySeatId
-          if (!resolved.skipActorMismatchCheck && actorSeatId !== state.turn.activeSeatId) {
-            fail('actor_mismatch', step)
-          }
-        } catch (err) {
-          fail('engine_error', step, err.message)
-        }
-
-        const actor = { seatId: applySeatId }
-        const index = encodeActionIndex(state, action)
-        if (index < 0) {
-          fail('unmapped_action_type', step)
-        }
-
-        const result = applyAction(state, action, actor)
-        if (!result.ok) {
-          fail('illegal_action', step, result.errorCode ?? 'applyAction rejected')
-        }
-
-        if (result.state.rng.step !== rngStepAfter) {
-          fail(
-            'rng_chain_break',
-            step,
-            `engine rng step ${result.state.rng.step} != recorded rngStepAfter ${rngStepAfter}`,
-          )
-        }
-
-        state = result.state
-      }
-
-      if (state.phase !== MATCH_PHASES.MATCH_OVER) {
-        fail('match_not_over')
+      const replayed = replayEnvelopeToMatchOver(state, envelope, {
+        applyAction,
+        encodeActionIndex,
+        MATCH_PHASES,
+      })
+      if (!replayed.ok) {
+        const { failure } = replayed
+        fail(failure.code, failure.step, failure.detail)
       }
 
       process.stdout.write(JSON.stringify({ ok: true }) + '\n')
