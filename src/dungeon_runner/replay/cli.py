@@ -26,6 +26,8 @@ from dungeon_runner.replay.ingest import run_ingest
 from dungeon_runner.replay import progress
 from dungeon_runner.replay.run_all import run_all
 from dungeon_runner.replay.verify import run_verify
+from dungeon_runner.replay.backfill_outcomes import run_backfill_outcomes
+from dungeon_runner.replay.firestore_admin import require_credentials_path
 
 DEFAULT_DATA_DIR = Path("data/replays")
 
@@ -170,6 +172,40 @@ def _cmd_bc(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_backfill_outcomes(args: argparse.Namespace) -> int:
+    try:
+        require_database_url()
+        require_credentials_path()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    try:
+        summary = run_backfill_outcomes(
+            dry_run=args.dry_run,
+            limit=args.limit,
+        )
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    if summary.written:
+        label = "would write" if args.dry_run else "written"
+        print(f"{label} {len(summary.written)}: {', '.join(summary.written)}")
+    if summary.skipped:
+        skip_label = "would skip" if args.dry_run else "skipped"
+        print(f"{skip_label} {len(summary.skipped)}")
+        for entry in summary.skipped:
+            print(f"  {entry['id']}: {entry['reason']}")
+    if summary.failed:
+        print(f"failed {len(summary.failed)}")
+        for entry in summary.failed:
+            print(f"  {entry['id']}: {entry['reason']}")
+    if not summary.written and not summary.skipped and not summary.failed:
+        print("no completed matches")
+    return 1 if summary.failed else 0
+
+
 def _cmd_verify(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir)
     try:
@@ -276,6 +312,23 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Training data root (default: {DEFAULT_DATA_DIR})",
     )
     verify.set_defaults(handler=_cmd_verify)
+
+    backfill = sub.add_parser(
+        "backfill-outcomes",
+        help="Derive and backfill Firestore completed match outcomes from RTDB replays",
+    )
+    backfill.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run derive checks without Firestore writes",
+    )
+    backfill.add_argument(
+        "--limit",
+        type=int,
+        metavar="N",
+        help="Process at most N RTDB match ids (sorted)",
+    )
+    backfill.set_defaults(handler=_cmd_backfill_outcomes)
 
     dataset = sub.add_parser(
         "dataset",

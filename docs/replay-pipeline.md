@@ -13,6 +13,7 @@ python -m dungeon_runner.replay.cli <stage> [stage flags…]
 | Stage | Status | Purpose |
 |-------|--------|---------|
 | `ingest` | **implemented** | Pull RTDB or `--from-export` into **raw envelope store** + **ingest manifest** |
+| `backfill-outcomes` | **implemented** | Derive **completed match outcome** from RTDB replays → Firestore (skip existing docs) — [#25](https://github.com/enmaku/dungeon-runner/issues/25) |
 | `verify` | **implemented** | **Replay verifier** — replay each pending envelope through **web game engine** to `match-over` |
 | `eval_suite` | **implemented** | `eval_suite init` — **eval suite artifact** **frozen on disk** under `--data-dir` (gitignored `data/`) |
 | `eval_config` | **implemented** | `eval_config init` — **eval config artifact** **frozen on disk** (sim seeds, ε; floor null until BC baseline) |
@@ -52,8 +53,9 @@ Copy [`.env.example`](../.env.example) to `.env` (gitignored). The CLI loads it 
 
 | Variable | Required for | Notes |
 |----------|--------------|-------|
-| `FIREBASE_DATABASE_URL` | `ingest` (live RTDB) | Same URL as portfolio-site `VITE_FIREBASE_DATABASE_URL`. Not needed for `ingest --from-export`. v1 uses RTDB REST read only (no service account until rules tighten). |
-| `PORTFOLIO_SITE_ROOT` | `verify`, `dataset`, Node harness paths | Absolute path to portfolio-site checkout (**web engine root**). Used by verify harness and (when implemented) dataset label harness. |
+| `FIREBASE_DATABASE_URL` | `ingest` (live RTDB), `backfill-outcomes` | Same URL as portfolio-site `VITE_FIREBASE_DATABASE_URL`. Not needed for `ingest --from-export`. v1 uses RTDB REST read only (no Auth on ingest). |
+| `GOOGLE_APPLICATION_CREDENTIALS` | `backfill-outcomes` | Path to a Firebase service account JSON with Firestore write access. Required for Admin SDK create-only writes to **completed match outcome archive**; not used by ingest/verify. |
+| `PORTFOLIO_SITE_ROOT` | `verify`, `dataset`, `backfill-outcomes`, Node harness paths | Absolute path to portfolio-site checkout (**web engine root**). Used by verify/dataset harnesses and `derive_match_outcome.mjs`. |
 
 Portfolio-site mirror for sync after **gated promotion**: `DUNGEON_RUNNER_ROOT` — see [portfolio-site #127](https://github.com/enmaku/portfolio-site/issues/127) and [#128](https://github.com/enmaku/portfolio-site/issues/128).
 
@@ -113,6 +115,40 @@ See [Training data root layout](#training-data-root-layout). One ingest run list
 ### Manual re-ingest
 
 Remove the id from `manifest.json` (`ingested` / `skipped`) and delete `raw/{matchId}.json`, then re-run `ingest`. v1 does not auto-detect RTDB payload changes under the same key.
+
+---
+
+## Backfill outcomes
+
+**Issues:** [dungeon-runner #25](https://github.com/enmaku/dungeon-runner/issues/25) (CLI), parent epic [#23](https://github.com/enmaku/dungeon-runner/issues/23) · [portfolio-site #158](https://github.com/enmaku/portfolio-site/issues/158) (live Firestore upload + CONTRACT). Populates Firestore **completed match outcome archive** `dungeonRunnerMatchOutcomes/{matchId}` from existing RTDB **completed match replay** envelopes. Payload shape is normative in portfolio-site [**Match outcome record (v1)**](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTRACT.md#match-outcome-record-v1) (sibling: `$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/CONTRACT.md#match-outcome-record-v1`); dungeon-runner calls the same `buildMatchOutcomeRecord` via `derive_match_outcome.mjs`. Does not touch **training data root** or **ingest manifest**.
+
+```bash
+python -m dungeon_runner.replay.cli backfill-outcomes
+python -m dungeon_runner.replay.cli backfill-outcomes --dry-run
+python -m dungeon_runner.replay.cli backfill-outcomes --limit 50
+```
+
+| Flag | Notes |
+|------|--------|
+| `--dry-run` | Run derive for pending ids; print `would write` / `would skip` / `failed` without Firestore writes |
+| `--limit N` | Process at most N RTDB match ids (sorted) |
+
+Requires `FIREBASE_DATABASE_URL`, `GOOGLE_APPLICATION_CREDENTIALS`, and `PORTFOLIO_SITE_ROOT`. v1 has no `--force` overwrite: existing outcome docs are skipped; delete the Firestore doc manually to re-derive.
+
+### RTDB and Firestore access
+
+Same shallow listing as ingest (**RTDB incremental fetch** — keys only, then per-id envelope):
+
+- Shallow key list: `{FIREBASE_DATABASE_URL}/dungeonRunnerCompletedMatches.json?shallow=true`
+- Per pending id: `…/dungeonRunnerCompletedMatches/{matchId}.json`
+
+For each id: if `dungeonRunnerMatchOutcomes/{matchId}` exists → **skip** (no write, no overwrite). Else run `derive_match_outcome.mjs` (slice [#24](https://github.com/enmaku/dungeon-runner/issues/24)); on success, Firestore Admin **`create`** only (create-only; no upsert/set in v1). Browser live upload uses the same create-only rule (portfolio-site Firestore rules).
+
+Stdout summary: `written` / `skipped` / `failed` counts with per-id reasons on skip/fail. Exit code `1` when any id failed; `0` otherwise.
+
+### Re-backfill one match
+
+Delete the outcome doc in Firestore, then re-run `backfill-outcomes` (or `--dry-run` first).
 
 ---
 
@@ -522,6 +558,9 @@ Glossary: **web deployed latest** vs **production latest**, **deployed model ver
 | Ubiquitous language (consolidated) | [`UBIQUITOUS_LANGUAGE.md`](../UBIQUITOUS_LANGUAGE.md) · [portfolio-site](https://github.com/enmaku/portfolio-site/blob/main/UBIQUITOUS_LANGUAGE.md) |
 | Cross-repo index | [`CROSS_REPO.md`](../CROSS_REPO.md) · [portfolio-site `CROSS_REPO.md`](https://github.com/enmaku/portfolio-site/blob/main/CROSS_REPO.md) |
 | Replay envelope v1 (normative) | `$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/CONTRACT.md` · [GitHub](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTRACT.md) |
+| Match outcome record v1 (normative) | `$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/CONTRACT.md#match-outcome-record-v1` · [GitHub](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTRACT.md#match-outcome-record-v1) |
+| Match outcomes epic | [dungeon-runner #23](https://github.com/enmaku/dungeon-runner/issues/23) · [portfolio-site #158](https://github.com/enmaku/portfolio-site/issues/158) |
+| Backfill outcomes CLI | [dungeon-runner #25](https://github.com/enmaku/dungeon-runner/issues/25) |
 | Portfolio-site play glossary | `$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/CONTEXT.md` · [GitHub](https://github.com/enmaku/portfolio-site/blob/main/src/features/dungeon-runner/CONTEXT.md) |
 | Portfolio-site site glossary | `$PORTFOLIO_SITE_ROOT/CONTEXT.md` · [GitHub](https://github.com/enmaku/portfolio-site/blob/main/CONTEXT.md) |
 | Web engine authoritative | [ADR 0001](adr/0001-web-game-engine-authoritative.md) |
