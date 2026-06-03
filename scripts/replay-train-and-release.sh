@@ -18,6 +18,7 @@
 #   PPO_NO_RAY            set to 1 for single-process rollouts
 #   CLEAN_TRAINING        set to 1 to wipe models/runs/* and eval_config.json first
 #   SKIP_PORTFOLIO_SYNC   set to 1 to skip npm sync (still runs publish)
+#   PROMOTED_AT           optional ISO-8601 timestamp for publish --promoted-at
 #   PYTHON                override python binary
 
 set -euo pipefail
@@ -120,7 +121,11 @@ if [[ "$PPO_EXIT" -ne 0 ]]; then
 fi
 
 log "stage 3/4: publish (gated promotion)"
-PUBLISH_OUT="$(replay_cli publish --run "$PPO_RUN")"
+PUBLISH_ARGS=(--run "$PPO_RUN")
+if [[ -n "${PROMOTED_AT:-}" ]]; then
+  PUBLISH_ARGS+=(--promoted-at "$PROMOTED_AT")
+fi
+PUBLISH_OUT="$(replay_cli publish "${PUBLISH_ARGS[@]}")"
 printf '%s\n' "$PUBLISH_OUT"
 PROMOTED_VERSION="$(printf '%s\n' "$PUBLISH_OUT" | sed -n 's/^promoted .* → \(.*\)$/\1/p')"
 [[ -n "$PROMOTED_VERSION" ]] || die "could not parse promoted version from publish output"

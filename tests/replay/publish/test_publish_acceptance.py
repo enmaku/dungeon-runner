@@ -207,4 +207,39 @@ def test_publish_cli_success_prints_promoted_version(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     assert "v0.2" in proc.stdout
+    assert "promoted_at:" in proc.stdout
     assert (repo / "models" / "v0.2").is_dir()
+
+
+def test_publish_cli_promoted_at_override(tmp_path):
+    repo = tmp_path / "repo"
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    write_passing_eval_config(data_dir)
+    seed_legacy_latest(repo)
+    run_dir = write_training_run_artifact(repo)
+    ts = "2026-06-01T00:00:00Z"
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "dungeon_runner.replay.cli",
+            "publish",
+            "--run",
+            str(run_dir),
+            "--data-dir",
+            str(data_dir),
+            "--promoted-at",
+            ts,
+        ],
+        capture_output=True,
+        text=True,
+        cwd=repo,
+        env={**os.environ, "PYTHONPATH": str(_repo_root() / "src")},
+    )
+    assert proc.returncode == 0, proc.stderr
+    manifest = json.loads((repo / "models" / "v0.2" / "promotion.json").read_text())
+    assert manifest["promoted_at"] == ts
+    ledger = json.loads((repo / "models" / "promotions.jsonl").read_text().strip())
+    assert ledger["promoted_at"] == ts

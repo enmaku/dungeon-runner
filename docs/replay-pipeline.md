@@ -403,7 +403,7 @@ Tracked in [dungeon-runner #7](https://github.com/enmaku/dungeon-runner/issues/7
 
 ```bash
 python -m dungeon_runner.replay.cli publish --run models/runs/bc-… \
-  [--data-dir data/replays] [--version v0.3]
+  [--data-dir data/replays] [--version v0.3] [--promoted-at 2026-06-01T00:00:00Z]
 ```
 
 | Flag | Notes |
@@ -411,10 +411,34 @@ python -m dungeon_runner.replay.cli publish --run models/runs/bc-… \
 | `--run` | **Required.** Committed **training run artifact** dir (not `*.tmp`) |
 | `--data-dir` | Loads **eval config artifact** for **publish gate evaluation** |
 | `--version` | Optional minor line bump (e.g. `v0.3`); patch auto-bumps under current line |
+| `--promoted-at` | Optional ISO-8601 timestamp; default is UTC now at successful promote |
 
 - Trusts committed **metrics artifact** (no re-eval at publish).
 - **Promotion gates (pre-floor):** fail closed while `replay_accuracy_floor` is null.
 - On pass: `models/<promoted version>/`, **production latest** symlink, `models/promotions.jsonl`.
+- **`promoted_at`** in `promotion.json` and `promotions.jsonl` is the dungeon-runner source of truth for portfolio-site **`publishedAt`** in `public/models/dungeon-runner/models.json` (merged on TF.js sync when `DUNGEON_RUNNER_ROOT` is set).
+
+Example `promotion.json`:
+
+```json
+{
+  "promoted_version": "v0.2.05",
+  "run_id": "ppo-20260602T120000Z",
+  "parent_weights": "models/runs/bc-…/policy.weights.h5",
+  "promoted_at": "2026-06-02T19:07:34.055290+00:00",
+  "metrics_file": "metrics.json"
+}
+```
+
+### Backfill promotion timestamps
+
+One-time alignment of existing manifests with portfolio manual catalog entries:
+
+```bash
+python -m dungeon_runner.replay.cli publish-backfill-timestamps [--dry-run] [--catalog-path path/to/models.json]
+```
+
+Requires `PORTFOLIO_SITE_ROOT` (reads `public/models/dungeon-runner/models.json` by default). Updates `promoted_at` in `promotions.jsonl` and per-dir `promotion.json`; creates minimal `promotion.json` for legacy weight-only dirs (e.g. `v0.1.29a`) without appending JSONL.
 - First replay-pipeline promote: `v0.2`, then `v0.2.01`, `v0.2.02`, … — [ADR 0002](adr/0002-promoted-version-semver-and-latest-symlink.md).
 - One-time migration: legacy duplicate `models/latest/` dir → symlink to `v0.1.30a` on first `publish`.
 - Does **not** run **TF.js model sync**; see [Release to portfolio-site](#release-to-portfolio-site).
@@ -542,7 +566,7 @@ See [ADR 0002](adr/0002-promoted-version-semver-and-latest-symlink.md) and **gat
 
 ### Handoff after `publish`
 
-1. Note the new **promoted version** from `publish` stdout or `models/promotions.jsonl` / `promotion.json`.
+1. Note the new **promoted version** and **`promoted_at`** from `publish` stdout or `models/promotions.jsonl` / `promotion.json`.
 2. Open portfolio-site [**two-repo model release** runbook](https://github.com/enmaku/portfolio-site/blob/main/scripts/MODEL_RELEASE.md) (sibling: `$PORTFOLIO_SITE_ROOT/scripts/MODEL_RELEASE.md`). Optional feature checklist: `$PORTFOLIO_SITE_ROOT/src/features/dungeon-runner/RELEASE_CHECKLIST.md`.
 3. Set `DUNGEON_RUNNER_ROOT` to this repo (see portfolio-site `.env.example`), then sync, e.g. `npm run sync-dungeon-runner-model -- --from-latest` or an explicit semver id.
 4. Run **release smoke** (manual play on `/projects/dungeon-runner`; optional Node guard on **web deployed latest** artifacts) per the portfolio runbook.

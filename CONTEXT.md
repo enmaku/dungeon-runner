@@ -119,8 +119,8 @@ A semver-labeled TF.js tree under `public/models/dungeon-runner/<promoted versio
 _Avoid_: "model version" meaning **training run id**; expecting portfolio semver folders to track `models/runs/`
 
 **Promotion manifest**:
-Audit record written only on successful **gated promotion**: per **promoted version** dir (`promotion.json` with version, `parent_weights`, timestamp, **training run id**, pointer to metrics snapshot) plus one append-only line in repo-level `models/promotions.jsonl`. A full copy of the run **metrics artifact** lives in the promoted dir alongside weights.
-_Avoid_: Manifest on failed publish; manifest only in the run dir under `models/runs/`; overwriting prior JSONL lines
+Audit record written only on successful **gated promotion**: per **promoted version** dir (`promotion.json` with version, `parent_weights`, **`promoted_at`** (ISO-8601 UTC), **training run id**, pointer to metrics snapshot) plus one append-only line in repo-level `models/promotions.jsonl` (same `promoted_at`). Portfolio-site **model catalog** maps this field to **`publishedAt`** on sync. Override at promote time via `publish --promoted-at`; one-time historical alignment via `publish-backfill-timestamps` from portfolio `models.json`.
+_Avoid_: Manifest on failed publish; manifest only in the run dir under `models/runs/`; overwriting prior JSONL lines; hand-editing portfolio `publishedAt` for new promotes when ledger `promoted_at` is correct
 
 **Publish gate evaluation**:
 Stage `publish` applies **promotion gates** by reading the committed run **metrics artifact** and **eval config artifact** only—no second **replay eval metrics** or **sim eval metrics** pass. Same gate rules as **gate evaluator preview**, but may copy weights and write **promotion manifest** on pass. For `ppo-*` artifacts, also requires `ppo_bc_regression.pass: true` from stage `ppo`.

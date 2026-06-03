@@ -177,6 +177,7 @@ def _default_publish(data_dir: Path, run_dir: Path) -> int:
             progress.log(f"  {exc}")
         return 1
     progress.log(f"  promoted → {summary.promoted_version} ({summary.version_dir})")
+    progress.log(f"  promoted_at: {summary.promoted_at}")
     return 0
 
 

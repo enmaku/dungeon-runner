@@ -32,10 +32,23 @@ class PublishSummary:
     run_dir: Path
     promoted_version: str
     version_dir: Path
+    promoted_at: str
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def validate_promoted_at(value: str) -> str:
+    trimmed = value.strip()
+    if not trimmed:
+        raise PublishError("promoted_at must be a non-empty ISO-8601 timestamp")
+    normalized = trimmed.replace("Z", "+00:00").replace("z", "+00:00")
+    try:
+        datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise PublishError(f"invalid promoted_at ISO-8601 timestamp: {trimmed}") from exc
+    return trimmed
 
 
 def validate_run_dir(run_dir: Path) -> None:
@@ -87,7 +100,7 @@ def run_publish(
         existing_versions=list_promoted_versions(models_dir, ledger_path),
         override=version_override,
     )
-    promoted_at_ts = promoted_at or _utc_now_iso()
+    promoted_at_ts = validate_promoted_at(promoted_at) if promoted_at else _utc_now_iso()
     parent_weights = str(metrics.get("parent_weights", ""))
 
     staging = models_dir / f"{version}.tmp"
@@ -133,4 +146,5 @@ def run_publish(
         run_dir=run_dir,
         promoted_version=version,
         version_dir=final_dir,
+        promoted_at=promoted_at_ts,
     )

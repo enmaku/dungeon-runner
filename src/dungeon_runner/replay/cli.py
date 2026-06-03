@@ -20,7 +20,15 @@ from dungeon_runner.replay.ppo import (
     default_ppo_run_id,
     run_ppo,
 )
-from dungeon_runner.replay.publish import PublishError, run_publish
+from dungeon_runner.replay.publish import (
+    BackfillTimestampsError,
+    PublishError,
+    run_backfill_timestamps,
+    run_publish,
+    validate_promoted_at,
+)
+from dungeon_runner.replay.publish.backfill_timestamps import default_catalog_path
+from dungeon_runner.replay.web_engine import require_portfolio_site_root
 from dungeon_runner.replay.dataset import DatasetBuildError, run_dataset
 from dungeon_runner.replay.ingest import run_ingest
 from dungeon_runner.replay import progress
@@ -121,11 +129,19 @@ def _cmd_publish(args: argparse.Namespace) -> int:
         return 1
     run_dir = Path(args.run)
     data_dir = Path(args.data_dir)
+    promoted_at: str | None = None
+    if args.promoted_at:
+        try:
+            promoted_at = validate_promoted_at(args.promoted_at)
+        except PublishError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
     try:
         summary = run_publish(
             run_dir=run_dir,
             data_dir=data_dir,
             version_override=args.version,
+            promoted_at=promoted_at,
         )
     except PublishError as exc:
         if exc.reasons:
@@ -134,7 +150,40 @@ def _cmd_publish(args: argparse.Namespace) -> int:
             print(str(exc), file=sys.stderr)
         return 1
     print(f"promoted {summary.run_id} → {summary.promoted_version}")
+    print(f"  promoted_at: {summary.promoted_at}")
     print(f"  {summary.version_dir}")
+    return 0
+
+
+def _cmd_publish_backfill_timestamps(args: argparse.Namespace) -> int:
+    try:
+        portfolio_root = require_portfolio_site_root()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    catalog_path = (
+        Path(args.catalog_path).expanduser().resolve()
+        if args.catalog_path
+        else default_catalog_path(portfolio_root)
+    )
+    repo_root = Path.cwd()
+    try:
+        summary = run_backfill_timestamps(
+            repo_root=repo_root,
+            catalog_path=catalog_path,
+            dry_run=args.dry_run,
+        )
+    except BackfillTimestampsError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    if not summary.changes:
+        print("no timestamp changes needed")
+        return 0
+    mode = "would update" if summary.dry_run else "updated"
+    print(f"{mode} {len(summary.changes)} field(s):")
+    for change in summary.changes:
+        old = change.old_value if change.old_value is not None else "(none)"
+        print(f"  {change.model_id} {change.field}: {old} → {change.new_value}")
     return 0
 
 
@@ -475,7 +524,26 @@ def main(argv: list[str] | None = None) -> int:
         "--version",
         help="Manual promoted version (e.g. v0.3); default auto-bump",
     )
+    publish.add_argument(
+        "--promoted-at",
+        help="ISO-8601 promotion timestamp (default: UTC now at publish)",
+    )
     publish.set_defaults(handler=_cmd_publish)
+
+    backfill_ts = sub.add_parser(
+        "publish-backfill-timestamps",
+        help="Align promotion manifests with portfolio-site models.json publishedAt",
+    )
+    backfill_ts.add_argument(
+        "--catalog-path",
+        help="Override portfolio models.json (default: $PORTFOLIO_SITE_ROOT/public/models/dungeon-runner/models.json)",
+    )
+    backfill_ts.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print planned changes without writing",
+    )
+    backfill_ts.set_defaults(handler=_cmd_publish_backfill_timestamps)
 
     run_all_parser = sub.add_parser(
         "run-all",

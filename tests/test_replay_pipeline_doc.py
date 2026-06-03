@@ -206,6 +206,13 @@ def test_publish_section_links_issue_8(md: str) -> None:
     assert "github.com/enmaku/dungeon-runner/issues/8" in publish
 
 
+def test_publish_section_documents_promoted_at_and_portfolio_published_at(md: str) -> None:
+    publish = md.split("## Publish (gated promotion)", 1)[1].split("\n## ", 1)[0]
+    assert "promoted_at" in publish
+    assert "publishedAt" in publish
+    assert "publish-backfill-timestamps" in publish
+
+
 def test_related_links_portfolio_context_and_adr_0001(md: str) -> None:
     related = md.split("## Related", 1)[1]
     assert "$PORTFOLIO_SITE_ROOT/CONTEXT.md" in related

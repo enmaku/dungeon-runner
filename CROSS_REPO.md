@@ -49,6 +49,7 @@ Default sibling layout: `../portfolio-site` and `../dungeon-runner`.
 | **Production latest** | **Web deployed latest** | H5 symlink `models/latest/` here ↔ TF.js alias `public/models/dungeon-runner/latest/`. Same production pointer, different artifact format. |
 | **Promoted version** | **Deployed model version** | Semver dir under `models/<id>/` here ↔ `public/models/dungeon-runner/<id>/` after sync. |
 | **Model catalog** | **Model catalog** (`models.json`) | Neural TF.js ids only—not **game data catalog**. |
+| **`promoted_at`** | **`publishedAt`** | Written on dungeon-runner `publish`; portfolio sync reads ledger + per-dir `promotion.json`. |
 | **Gated promotion** | (no glossary term) | `publish` stage here; portfolio-site has no promote step. |
 | **Training run id** | (no glossary term) | `bc-*` / `ppo-*` under `models/runs/`; never synced as player-facing ids. |
 | **Derived training row** | **History** + dataset build | Rows are built from **history** via **web game engine**; **Human step** / `is_human` resolved at dataset build, not in envelope. |

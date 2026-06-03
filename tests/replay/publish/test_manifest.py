@@ -24,6 +24,7 @@ def test_write_promotion_manifest_fields(tmp_path):
     data = json.loads((version_dir / "promotion.json").read_text())
     assert data["promoted_version"] == "v0.2"
     assert data["run_id"] == "bc-20260518T120000Z"
+    assert data["promoted_at"] == "2026-05-18T12:00:00+00:00"
     assert data["metrics_file"] == "metrics.json"
 
 
@@ -40,6 +41,7 @@ def test_append_promotion_ledger_creates_jsonl(tmp_path):
     row = json.loads(lines[0])
     assert row["promoted_version"] == "v0.2"
     assert row["run_id"] == "bc-20260518T120000Z"
+    assert row["promoted_at"] == "2026-05-18T12:00:00+00:00"
 
 
 def test_load_promoted_run_ids_from_ledger(tmp_path):

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -42,8 +43,12 @@ def test_publish_success_creates_version_symlink_and_ledger(tmp_path):
 
     ledger = tmp_path / "models" / "promotions.jsonl"
     rows = [json.loads(line) for line in ledger.read_text().strip().splitlines()]
+    manifest = json.loads((version_dir / "promotion.json").read_text())
+    assert manifest["promoted_at"] == rows[-1]["promoted_at"]
+    datetime.fromisoformat(manifest["promoted_at"].replace("Z", "+00:00"))
     assert rows[-1]["run_id"] == "bc-20260518T120000Z"
     assert rows[-1]["promoted_version"] == "v0.2"
+    assert summary.promoted_at == rows[-1]["promoted_at"]
 
 
 def test_publish_fails_gates_without_touching_latest_or_ledger(tmp_path):

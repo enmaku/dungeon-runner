@@ -173,10 +173,11 @@ models/
     metrics.json
     tb/
   <promoted version>/        # gated promotion output (v0.2, v0.2.01, …)
-  promotions.jsonl           # append-only promotion ledger
+    promotion.json           # promoted_at, run_id, parent_weights (audit)
+  promotions.jsonl           # append-only promotion ledger (promoted_at per line)
 ```
 
-Gated promotion (`publish`) copies candidate weights here only when promotion gates pass (replay accuracy floor + sim non-regression vs latest). Each training run id may promote at most once.
+Gated promotion (`publish`) copies candidate weights here only when promotion gates pass (replay accuracy floor + sim non-regression vs latest). Each training run id may promote at most once. **`promoted_at`** is written automatically (or via `--promoted-at`) and feeds portfolio-site **`publishedAt`** on TF.js sync.
 
 After promote, sync TF.js weights in portfolio-site (`npm run sync-dungeon-runner-model`). That step is not implemented in this repo.
 
